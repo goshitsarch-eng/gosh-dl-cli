@@ -26,6 +26,12 @@ sudo cp target/release/gosh /usr/local/bin/
 cargo install gosh-dl-cli
 ```
 
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/goshitsarch-eng/gosh-dl-cli/releases).
+
+**Linux builds:** glibc binaries are built on Ubuntu 20.04 for broad distro compatibility; musl binaries are fully static for maximum portability (including Alpine).
+
 ## Usage Modes
 
 gosh supports three distinct usage patterns:
