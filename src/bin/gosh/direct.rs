@@ -73,10 +73,9 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
     // Setup Ctrl+C handler
     let interrupted = Arc::new(AtomicBool::new(false));
     let interrupted_clone = interrupted.clone();
-    tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            interrupted_clone.store(true, Ordering::SeqCst);
-        }
+    let ctrl_c_task = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        interrupted_clone.store(true, Ordering::SeqCst);
     });
 
     // Setup multi-progress bar
@@ -140,7 +139,12 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
     let mut events = app.subscribe();
     let download_ids: HashSet<DownloadId> = downloads.keys().copied().collect();
 
-    while !downloads.values().all(|d| d.completed || d.failed) {
+    loop {
+        // Check if all downloads are done
+        if downloads.values().all(|d| d.completed || d.failed) {
+            break;
+        }
+
         // Check for interrupt
         if interrupted.load(Ordering::SeqCst) {
             // Cancel all active downloads
@@ -152,62 +156,81 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
                     info.progress_bar.abandon_with_message("Interrupted");
                 }
             }
+            ctrl_c_task.abort();
             app.shutdown().await?;
             std::process::exit(exit_codes::INTERRUPTED);
         }
 
         // Process events with timeout
-        let event = tokio::time::timeout(Duration::from_millis(100), events.recv()).await;
-
-        match event {
-            Ok(Ok(DownloadEvent::Progress { id, progress })) if download_ids.contains(&id) => {
-                if let Some(info) = downloads.get_mut(&id) {
-                    if let Some(total) = progress.total_size {
-                        if info.progress_bar.length() != Some(total) {
-                            info.progress_bar.set_length(total);
-                            info.progress_bar.set_style(bar_style.clone());
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                // Cancel all active downloads
+                for id in &download_ids {
+                    let _ = app.engine().cancel(*id, false).await;
+                }
+                for info in downloads.values() {
+                    if !info.completed && !info.failed {
+                        info.progress_bar.abandon_with_message("Interrupted");
+                    }
+                }
+                ctrl_c_task.abort();
+                app.shutdown().await?;
+                std::process::exit(exit_codes::INTERRUPTED);
+            }
+            event = events.recv() => {
+                match event {
+                    Ok(DownloadEvent::Progress { id, progress }) if download_ids.contains(&id) => {
+                        if let Some(info) = downloads.get_mut(&id) {
+                            if let Some(total) = progress.total_size {
+                                if info.progress_bar.length() != Some(total) {
+                                    info.progress_bar.set_length(total);
+                                    info.progress_bar.set_style(bar_style.clone());
+                                }
+                            }
+                            info.progress_bar.set_position(progress.completed_size);
                         }
                     }
-                    info.progress_bar.set_position(progress.completed_size);
-                }
-            }
-            Ok(Ok(DownloadEvent::Completed { id })) if download_ids.contains(&id) => {
-                if let Some(info) = downloads.get_mut(&id) {
-                    info.completed = true;
-                    info.progress_bar
-                        .finish_with_message(format!("{} - Done", truncate_name(&info.name, 33)));
-                }
-            }
-            Ok(Ok(DownloadEvent::Failed { id, error, .. })) if download_ids.contains(&id) => {
-                if let Some(info) = downloads.get_mut(&id) {
-                    info.failed = true;
-                    info.progress_bar
-                        .abandon_with_message(format!("Failed: {}", truncate_name(&error, 32)));
-                }
-            }
-            Ok(Ok(DownloadEvent::StateChanged { id, new_state, .. }))
-                if download_ids.contains(&id) =>
-            {
-                if let Some(info) = downloads.get_mut(&id) {
-                    match new_state {
-                        DownloadState::Connecting => {
-                            info.progress_bar.set_message(format!(
-                                "{} - Connecting...",
-                                truncate_name(&info.name, 25)
-                            ));
-                        }
-                        DownloadState::Downloading => {
+                    Ok(DownloadEvent::Completed { id }) if download_ids.contains(&id) => {
+                        if let Some(info) = downloads.get_mut(&id) {
+                            info.completed = true;
                             info.progress_bar
-                                .set_message(truncate_name(&info.name, 40));
+                                .finish_with_message(format!("{} - Done", truncate_name(&info.name, 33)));
                         }
-                        _ => {}
                     }
+                    Ok(DownloadEvent::Failed { id, error, .. }) if download_ids.contains(&id) => {
+                        if let Some(info) = downloads.get_mut(&id) {
+                            info.failed = true;
+                            info.progress_bar
+                                .abandon_with_message(format!("Failed: {}", truncate_name(&error, 32)));
+                        }
+                    }
+                    Ok(DownloadEvent::StateChanged { id, new_state, .. })
+                        if download_ids.contains(&id) =>
+                    {
+                        if let Some(info) = downloads.get_mut(&id) {
+                            match new_state {
+                                DownloadState::Connecting => {
+                                    info.progress_bar.set_message(format!(
+                                        "{} - Connecting...",
+                                        truncate_name(&info.name, 25)
+                                    ));
+                                }
+                                DownloadState::Downloading => {
+                                    info.progress_bar
+                                        .set_message(truncate_name(&info.name, 40));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Err(_) => break, // Channel closed
+                    _ => continue,
                 }
             }
-            Ok(Err(_)) => break, // Channel closed
-            _ => continue,
         }
     }
+
+    ctrl_c_task.abort();
 
     // Shutdown engine gracefully
     app.shutdown().await?;
