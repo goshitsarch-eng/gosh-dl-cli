@@ -17,23 +17,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-20.04
-            target: x86_64-unknown-linux-gnu
-            name: linux-x86_64-gnu
-            artifact: gosh
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
-            name: linux-x86_64-musl
-            artifact: gosh
-            cross: true
-          - os: ubuntu-20.04
-            target: aarch64-unknown-linux-gnu
-            name: linux-arm64-gnu
+            name: linux-x86_64
             artifact: gosh
             cross: true
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-musl
-            name: linux-arm64-musl
+            name: linux-arm64
             artifact: gosh
             cross: true
           - os: macos-latest
@@ -108,7 +99,7 @@ jobs:
         run: find artifacts -type f
 
       - name: Create release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
           generate_release_notes: true

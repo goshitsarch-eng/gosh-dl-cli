@@ -30,7 +30,7 @@ cargo install gosh-dl-cli
 
 Download from [GitHub Releases](https://github.com/goshitsarch-eng/gosh-dl-cli/releases).
 
-**Linux builds:** glibc binaries are built on Ubuntu 20.04 for broad distro compatibility; musl binaries are fully static for maximum portability (including Alpine).
+**Linux builds:** Statically linked with musl for maximum portability across all distributions (including Alpine).
 
 ## Usage Modes
 
