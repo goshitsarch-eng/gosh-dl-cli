@@ -1,0 +1,73 @@
+[package]
+name = "gosh-dl-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line interface for the gosh-dl download engine"
+license = "MIT"
+repository = "https://github.com/goshitsarch-eng/gosh-dl-cli"
+keywords = ["download", "cli", "tui", "download-manager"]
+categories = ["command-line-utilities"]
+
+# Binary target (CLI)
+[[bin]]
+name = "gosh"
+path = "src/bin/gosh/main.rs"
+
+[dependencies]
+# Download engine from GitHub
+gosh-dl = { git = "https://github.com/goshitsarch-eng/gosh-dl.git" }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync", "time", "fs", "io-util"] }
+futures = "0.3"
+
+# Platform directories
+dirs = "5"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Data encoding
+uuid = { version = "1", features = ["v4", "serde"] }
+hex = "0.4"
+urlencoding = "2"
+
+# === CLI Dependencies ===
+# CLI argument parsing
+clap = { version = "4", features = ["derive", "env", "wrap_help", "color"] }
+
+# TUI framework
+ratatui = { version = "0.28", features = ["crossterm"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# Progress bars for non-TUI mode
+indicatif = "0.17"
+
+# Configuration file
+toml = "0.8"
+directories = "5"
+
+# Human-readable formatting
+humansize = "2"
+humantime = "2"
+
+# Error handling for CLI
+anyhow = "1"
+color-eyre = "0.6"
+
+# Async utilities for TUI
+futures-util = "0.3"
+tokio-stream = "0.1"
+
+# Logging for CLI
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
