@@ -1,5 +1,10 @@
 # gosh
 
+[![Crates.io](https://img.shields.io/crates/v/gosh-dl-cli.svg)](https://crates.io/crates/gosh-dl-cli)
+[![Documentation](https://docs.rs/gosh-dl-cli/badge.svg)](https://docs.rs/gosh-dl-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/goshitsarch-eng/gosh-dl-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/goshitsarch-eng/gosh-dl-cli/actions/workflows/ci.yml)
+
 A fast, modern download manager CLI with HTTP/HTTPS multi-connection acceleration and full BitTorrent protocol support. Powered by [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
 
 ## Features
@@ -20,7 +25,7 @@ cargo build --release
 sudo cp target/release/gosh /usr/local/bin/
 ```
 
-### From Crates.io (Coming Soon)
+### From Crates.io
 
 ```bash
 cargo install gosh-dl-cli
@@ -416,3 +421,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Related Projects
 
 - [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl) - The underlying download engine library
+- [docs.rs/gosh-dl-cli](https://docs.rs/gosh-dl-cli) - API documentation
