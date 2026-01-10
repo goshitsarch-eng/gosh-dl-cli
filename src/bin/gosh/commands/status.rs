@@ -1,12 +1,13 @@
-use anyhow::{bail, Result};
-use gosh_dl::types::{DownloadId, DownloadState, DownloadStatus};
+use anyhow::Result;
+use gosh_dl::types::{DownloadState, DownloadStatus};
 use std::time::Duration;
 
 use crate::app::App;
 use crate::cli::{OutputFormat, StatusArgs};
+use crate::util::resolve_download_id;
 
 pub async fn execute(args: StatusArgs, app: &App, output: OutputFormat) -> Result<()> {
-    let id = parse_download_id(&args.id)?;
+    let id = resolve_download_id(&args.id, app.engine())?;
 
     let status = app
         .engine()
@@ -26,20 +27,6 @@ pub async fn execute(args: StatusArgs, app: &App, output: OutputFormat) -> Resul
     }
 
     Ok(())
-}
-
-fn parse_download_id(s: &str) -> Result<DownloadId> {
-    // Try parsing as GID first (16 hex chars)
-    if let Some(id) = DownloadId::from_gid(s) {
-        return Ok(id);
-    }
-
-    // Try parsing as full UUID
-    if let Ok(uuid) = uuid::Uuid::parse_str(s) {
-        return Ok(DownloadId::from_uuid(uuid));
-    }
-
-    bail!("Invalid download ID: {}. Use a 16-character GID or full UUID.", s)
 }
 
 fn print_detailed_status(status: &DownloadStatus, show_peers: bool, show_files: bool) {

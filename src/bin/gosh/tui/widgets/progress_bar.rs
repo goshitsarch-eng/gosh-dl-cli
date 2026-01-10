@@ -1,5 +1,7 @@
 // Custom progress bar widget
 
+#![allow(dead_code)]
+
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -47,7 +49,7 @@ impl Widget for ProgressBar {
             } else {
                 self.empty_style
             };
-            buf.get_mut(area.x + x, area.y).set_style(style);
+            buf[(area.x + x, area.y)].set_style(style);
         }
     }
 }

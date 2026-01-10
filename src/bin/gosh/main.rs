@@ -10,6 +10,7 @@ mod direct;
 mod input;
 mod output;
 mod tui;
+mod util;
 
 use cli::{Cli, Commands};
 

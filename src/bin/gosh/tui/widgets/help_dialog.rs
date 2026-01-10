@@ -1,8 +1,10 @@
 // Help dialog widget
 
+#![allow(dead_code)]
+
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
 };

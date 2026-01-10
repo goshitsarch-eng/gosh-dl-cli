@@ -1,5 +1,7 @@
 // Speed graph widget (sparkline-style)
 
+#![allow(dead_code)]
+
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -67,9 +69,7 @@ impl<'a> Widget for SpeedGraph<'a> {
                 let ratio = value as f64 / max_value as f64;
                 let char_idx = ((ratio * 7.0).round() as usize).min(7);
                 let ch = SPARKLINE_CHARS[char_idx];
-                buf.get_mut(x, area.y)
-                    .set_char(ch)
-                    .set_style(self.style);
+                buf[(x, area.y)].set_char(ch).set_style(self.style);
             }
         }
     }

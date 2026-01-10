@@ -37,7 +37,8 @@ pub struct TuiApp {
     /// Currently selected download index
     pub selected: usize,
 
-    /// Scroll offset for download list
+    /// Scroll offset for download list (reserved for future use)
+    #[allow(dead_code)]
     pub scroll_offset: usize,
 
     /// Speed history for graph (last 60 samples: download, upload)
@@ -49,7 +50,8 @@ pub struct TuiApp {
     /// Active dialog (add URL, confirm cancel, etc.)
     pub dialog: Option<DialogState>,
 
-    /// Last update timestamp
+    /// Last update timestamp (reserved for future use)
+    #[allow(dead_code)]
     last_update: Instant,
 
     /// Global download speed

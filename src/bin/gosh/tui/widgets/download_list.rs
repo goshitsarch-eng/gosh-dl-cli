@@ -1,7 +1,7 @@
 // Download list widget - currently integrated in ui.rs
 // This module can be expanded for more complex list functionality
 
-use gosh_dl::types::DownloadStatus;
+#![allow(dead_code)]
 
 pub struct DownloadListState {
     pub selected: usize,

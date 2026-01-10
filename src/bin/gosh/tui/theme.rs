@@ -1,5 +1,6 @@
 use ratatui::style::{Color, Modifier, Style};
 
+#[allow(dead_code)]
 pub struct Theme {
     pub header_bg: Color,
     pub header_fg: Color,

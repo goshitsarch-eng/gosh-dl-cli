@@ -1,16 +1,14 @@
 use gosh_dl::types::{DownloadState, DownloadStatus};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
-use std::time::Duration;
 
 use super::app::{DialogState, TuiApp, ViewMode};
-use super::widgets;
 
 /// Main render function
 pub fn render(frame: &mut Frame, app: &TuiApp) {
-    let theme = app.theme();
+    let _theme = app.theme();
 
     // Main layout
     let chunks = Layout::default()
@@ -141,7 +139,7 @@ fn create_download_item<'a>(
         .unwrap_or_default();
 
     let name = truncate(&dl.metadata.name, 35);
-    let gid = &dl.id.to_gid()[..8];
+    let _gid = &dl.id.to_gid()[..8];
 
     let line = format!(
         "{} {} {:<35} {} {:>6.1}% {:>10} {:>8}",
@@ -295,7 +293,7 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
     let theme = app.theme();
 
     match dialog {
-        DialogState::AddUrl { input, cursor } => {
+        DialogState::AddUrl { input, cursor: _ } => {
             let area = centered_rect(60, 15, frame.area());
             frame.render_widget(Clear, area);
 

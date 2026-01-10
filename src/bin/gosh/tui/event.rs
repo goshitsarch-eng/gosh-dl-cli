@@ -1,11 +1,12 @@
 use anyhow::Result;
-use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, MouseEvent};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEvent};
 use futures_util::StreamExt;
 use gosh_dl::types::DownloadEvent;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
 /// Application events
+#[allow(dead_code)]
 pub enum AppEvent {
     /// Terminal input event (keyboard, mouse)
     Terminal(CrosstermEvent),
@@ -13,7 +14,7 @@ pub enum AppEvent {
     Engine(DownloadEvent),
     /// Periodic tick for UI refresh
     Tick,
-    /// Resize event
+    /// Resize event (width, height - reserved for future use)
     Resize(u16, u16),
 }
 

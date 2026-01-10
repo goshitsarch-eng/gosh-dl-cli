@@ -1,11 +1,15 @@
 use anyhow::Result;
-use gosh_dl::types::{DownloadId, DownloadState};
+use gosh_dl::types::DownloadState;
 
 use crate::app::App;
 use crate::cli::ResumeArgs;
+use crate::util::resolve_download_ids;
 
 pub async fn execute(args: ResumeArgs, app: &App) -> Result<()> {
-    let ids = resolve_ids(&args.ids, app)?;
+    // For "all", resume only paused downloads
+    let ids = resolve_download_ids(&args.ids, app.engine(), |d| {
+        matches!(d.state, DownloadState::Paused)
+    })?;
 
     let mut success_count = 0;
     let mut error_count = 0;
@@ -32,32 +36,4 @@ pub async fn execute(args: ResumeArgs, app: &App) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn resolve_ids(ids: &[String], app: &App) -> Result<Vec<DownloadId>> {
-    if ids.len() == 1 && ids[0].to_lowercase() == "all" {
-        // Resume all paused downloads
-        let all = app.engine().list();
-        return Ok(all
-            .into_iter()
-            .filter(|d| matches!(d.state, DownloadState::Paused))
-            .map(|d| d.id)
-            .collect());
-    }
-
-    ids.iter()
-        .map(|s| parse_download_id(s))
-        .collect()
-}
-
-fn parse_download_id(s: &str) -> Result<DownloadId> {
-    if let Some(id) = DownloadId::from_gid(s) {
-        return Ok(id);
-    }
-
-    if let Ok(uuid) = uuid::Uuid::parse_str(s) {
-        return Ok(DownloadId::from_uuid(uuid));
-    }
-
-    anyhow::bail!("Invalid download ID: {}", s)
 }
