@@ -10,11 +10,7 @@ pub async fn execute(args: PriorityArgs, app: &App) -> Result<()> {
 
     app.engine().set_priority(id, priority)?;
 
-    println!(
-        "Set priority of {} to {:?}",
-        id.to_gid(),
-        args.priority
-    );
+    println!("Set priority of {} to {:?}", id.to_gid(), args.priority);
 
     Ok(())
 }

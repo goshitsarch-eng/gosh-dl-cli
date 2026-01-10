@@ -70,9 +70,7 @@ impl Theme {
     }
 
     pub fn selected_style(&self) -> Style {
-        Style::default()
-            .bg(self.selected_bg)
-            .fg(self.selected_fg)
+        Style::default().bg(self.selected_bg).fg(self.selected_fg)
     }
 
     pub fn normal_style(&self) -> Style {

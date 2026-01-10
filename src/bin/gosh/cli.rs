@@ -3,10 +3,16 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "gosh")]
-#[command(author, version, about = "Fast download manager with HTTP and BitTorrent support")]
+#[command(
+    author,
+    version,
+    about = "Fast download manager with HTTP and BitTorrent support"
+)]
 #[command(propagate_version = true)]
-#[command(after_help = "Run 'gosh' without arguments to start the interactive TUI.\n\
-    Or pass URLs directly: gosh https://example.com/file.zip")]
+#[command(
+    after_help = "Run 'gosh' without arguments to start the interactive TUI.\n\
+    Or pass URLs directly: gosh https://example.com/file.zip"
+)]
 pub struct Cli {
     /// Config file path (default: ~/.config/gosh/config.toml)
     #[arg(short, long, global = true, env = "GOSH_CONFIG")]

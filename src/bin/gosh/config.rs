@@ -157,8 +157,9 @@ impl CliConfig {
         let config_path = path.map(PathBuf::from).unwrap_or_else(Self::default_path);
 
         if config_path.exists() {
-            let contents = std::fs::read_to_string(&config_path)
-                .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
+            let contents = std::fs::read_to_string(&config_path).with_context(|| {
+                format!("Failed to read config file: {}", config_path.display())
+            })?;
 
             toml::from_str(&contents)
                 .with_context(|| format!("Failed to parse config file: {}", config_path.display()))
@@ -211,12 +212,12 @@ impl CliConfig {
 
         // Create parent directories if they don't exist
         if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
 
-        let contents = toml::to_string_pretty(self)
-            .context("Failed to serialize configuration")?;
+        let contents = toml::to_string_pretty(self).context("Failed to serialize configuration")?;
 
         std::fs::write(&config_path, contents)
             .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;

@@ -91,6 +91,9 @@ fn format_speed(bytes_per_sec: u64) -> String {
     } else if bytes_per_sec < 1024 * 1024 * 1024 {
         format!("{:.2} MB/s", bytes_per_sec as f64 / (1024.0 * 1024.0))
     } else {
-        format!("{:.2} GB/s", bytes_per_sec as f64 / (1024.0 * 1024.0 * 1024.0))
+        format!(
+            "{:.2} GB/s",
+            bytes_per_sec as f64 / (1024.0 * 1024.0 * 1024.0)
+        )
     }
 }

@@ -226,7 +226,9 @@ impl TuiApp {
                     return Ok(false);
                 }
                 DialogState::Error { .. } => {
-                    if event::is_escape(event) || event::is_enter(event) || event::is_key(event, 'q')
+                    if event::is_escape(event)
+                        || event::is_enter(event)
+                        || event::is_key(event, 'q')
                     {
                         self.dialog = None;
                     }

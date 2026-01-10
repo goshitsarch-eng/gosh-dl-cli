@@ -20,7 +20,10 @@ impl ParsedInput {
                 // Extract display name from magnet if available
                 if let Some(dn_start) = uri.find("dn=") {
                     let start = dn_start + 3;
-                    let end = uri[start..].find('&').map(|i| start + i).unwrap_or(uri.len());
+                    let end = uri[start..]
+                        .find('&')
+                        .map(|i| start + i)
+                        .unwrap_or(uri.len());
                     let name = &uri[start..end];
                     urlencoding::decode(name)
                         .map(|s| s.into_owned())
@@ -29,7 +32,10 @@ impl ParsedInput {
                     // Extract info hash
                     if let Some(hash_start) = uri.find("btih:") {
                         let start = hash_start + 5;
-                        let end = uri[start..].find('&').map(|i| start + i).unwrap_or(uri.len());
+                        let end = uri[start..]
+                            .find('&')
+                            .map(|i| start + i)
+                            .unwrap_or(uri.len());
                         format!("magnet:{}", &uri[start..end.min(start + 16)])
                     } else {
                         uri.clone()

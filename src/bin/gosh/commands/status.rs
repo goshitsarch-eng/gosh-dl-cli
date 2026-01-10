@@ -147,7 +147,10 @@ fn print_detailed_status(status: &DownloadStatus, show_peers: bool, show_files: 
 
     // Timestamps
     println!("=== Timestamps ===");
-    println!("  Created: {}", status.created_at.format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "  Created: {}",
+        status.created_at.format("%Y-%m-%d %H:%M:%S")
+    );
     if let Some(completed_at) = status.completed_at {
         println!("  Completed: {}", completed_at.format("%Y-%m-%d %H:%M:%S"));
     }

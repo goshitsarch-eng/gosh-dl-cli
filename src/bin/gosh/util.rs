@@ -45,10 +45,12 @@ pub fn resolve_download_ids(
 ) -> Result<Vec<DownloadId>> {
     if ids.len() == 1 && ids[0].to_lowercase() == "all" {
         let all = engine.list();
-        return Ok(all.into_iter().filter(|d| filter(d)).map(|d| d.id).collect());
+        return Ok(all
+            .into_iter()
+            .filter(|d| filter(d))
+            .map(|d| d.id)
+            .collect());
     }
 
-    ids.iter()
-        .map(|s| resolve_download_id(s, engine))
-        .collect()
+    ids.iter().map(|s| resolve_download_id(s, engine)).collect()
 }

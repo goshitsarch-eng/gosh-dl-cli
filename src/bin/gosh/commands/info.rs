@@ -96,7 +96,10 @@ fn print_torrent_info(info: &TorrentInfo) {
     println!("=== Torrent Information ===");
     println!("Name: {}", info.name);
     println!("Info Hash: {}", info.info_hash);
-    println!("Size: {} ({} bytes)", info.total_size_human, info.total_size);
+    println!(
+        "Size: {} ({} bytes)",
+        info.total_size_human, info.total_size
+    );
     println!("Piece Size: {}", format_size(info.piece_length));
     println!("Pieces: {}", info.piece_count);
     if info.private {

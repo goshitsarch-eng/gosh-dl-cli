@@ -44,10 +44,7 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
     }
 
     // Parse and categorize inputs
-    let inputs: Vec<ParsedInput> = urls
-        .iter()
-        .map(|u| parse_input(u))
-        .collect::<Result<_>>()?;
+    let inputs: Vec<ParsedInput> = urls.iter().map(|u| parse_input(u)).collect::<Result<_>>()?;
 
     // Add each download
     let mut results = Vec::new();
@@ -55,12 +52,8 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
         let options = build_options(&args, &input)?;
 
         let id = match &input {
-            ParsedInput::Http(url) => {
-                app.engine().add_http(url, options).await?
-            }
-            ParsedInput::Magnet(uri) => {
-                app.engine().add_magnet(uri, options).await?
-            }
+            ParsedInput::Http(url) => app.engine().add_http(url, options).await?,
+            ParsedInput::Magnet(uri) => app.engine().add_magnet(uri, options).await?,
             ParsedInput::TorrentFile(path) => {
                 let data = tokio::fs::read(path)
                     .await
@@ -159,7 +152,9 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
     // Parse headers
     for header in &args.headers {
         if let Some((name, value)) = header.split_once(':') {
-            options.headers.push((name.trim().to_string(), value.trim().to_string()));
+            options
+                .headers
+                .push((name.trim().to_string(), value.trim().to_string()));
         }
     }
 
