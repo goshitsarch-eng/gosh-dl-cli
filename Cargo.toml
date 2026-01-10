@@ -15,7 +15,7 @@ path = "src/bin/gosh/main.rs"
 
 [dependencies]
 # Download engine from GitHub
-gosh-dl = { git = "https://github.com/goshitsarch-eng/gosh-dl.git" }
+gosh-dl = "0.1.3"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "time", "fs", "io-util"] }
