@@ -87,7 +87,7 @@ async fn run_command(
     let app = app::App::new(config).await?;
 
     match cmd {
-        Commands::Add(args) => commands::add::execute(args, &app, output_format).await,
+        Commands::Add(args) => commands::add::execute(*args, &app, output_format).await,
         Commands::List(args) => commands::list::execute(args, &app, output_format).await,
         Commands::Status(args) => commands::status::execute(args, &app, output_format).await,
         Commands::Pause(args) => commands::pause::execute(args, &app).await,

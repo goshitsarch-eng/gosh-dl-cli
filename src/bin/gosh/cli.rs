@@ -89,7 +89,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Add a new download (HTTP URL, magnet link, or torrent file)
-    Add(AddArgs),
+    Add(Box<AddArgs>),
 
     /// List all downloads
     List(ListArgs),

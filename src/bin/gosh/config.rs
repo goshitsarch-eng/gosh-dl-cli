@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CliConfig {
     pub general: GeneralConfig,
@@ -89,16 +89,6 @@ pub struct TuiConfig {
 
     /// Show peer list for torrents
     pub show_peers: bool,
-}
-
-impl Default for CliConfig {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            engine: EngineSettings::default(),
-            tui: TuiConfig::default(),
-        }
-    }
 }
 
 impl Default for GeneralConfig {

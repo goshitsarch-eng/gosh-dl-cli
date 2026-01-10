@@ -23,7 +23,7 @@ pub fn print_download_table(downloads: &[DownloadStatus]) {
         let eta = dl
             .progress
             .eta_seconds
-            .map(|s| format_duration(s))
+            .map(format_duration)
             .unwrap_or_else(|| "--".to_string());
         let state = format_state(&dl.state);
         let name = truncate(&dl.metadata.name, 35);
@@ -45,7 +45,7 @@ pub fn print_add_results(results: &[AddResult]) {
         return;
     }
 
-    println!("{:<16} {:<10} {}", "ID", "Type", "Input");
+    println!("{:<16} {:<10} Input", "ID", "Type");
     println!("{}", "─".repeat(70));
 
     for result in results {

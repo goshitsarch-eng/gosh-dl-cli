@@ -129,9 +129,10 @@ fn read_urls_from_file(path: &PathBuf) -> Result<Vec<String>> {
 }
 
 fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions> {
-    let mut options = DownloadOptions::default();
-
-    options.priority = args.priority.to_engine_priority();
+    let mut options = DownloadOptions {
+        priority: args.priority.to_engine_priority(),
+        ..Default::default()
+    };
 
     if let Some(ref dir) = args.dir {
         options.save_dir = Some(dir.clone());

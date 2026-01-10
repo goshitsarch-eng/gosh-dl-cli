@@ -42,7 +42,7 @@ fn print_detailed_status(status: &DownloadStatus, show_peers: bool, show_files: 
     let total = status
         .progress
         .total_size
-        .map(|s| format_size(s))
+        .map(format_size)
         .unwrap_or_else(|| "Unknown".to_string());
     let completed = format_size(status.progress.completed_size);
     let percentage = status.progress.percentage();
