@@ -2,6 +2,8 @@
 
 A native Rust download engine supporting HTTP/HTTPS and BitTorrent protocols.
 
+> **Note**: This document specifies the [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl) engine library that powers this CLI. For CLI usage and commands, see [README.md](README.md).
+
 ---
 
 ## Table of Contents
