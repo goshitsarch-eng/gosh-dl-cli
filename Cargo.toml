@@ -1,6 +1,6 @@
 [package]
 name = "gosh-dl-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Command-line interface for the gosh-dl download engine"
 license = "MIT"
@@ -15,7 +15,7 @@ path = "src/bin/gosh/main.rs"
 
 [dependencies]
 # Download engine from GitHub
-gosh-dl = "0.1.3"
+gosh-dl = "0.1.5"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "time", "fs", "io-util"] }

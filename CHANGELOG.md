@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-01-12
+
+### Changed
+
+- Upgrade gosh-dl engine from 0.1.3 to 0.1.5
+
 ## [0.1.0] - 2026-01-09
 
 ### Added
@@ -35,5 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI/CD workflows
 - Pre-built binaries (statically linked musl for Linux)
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/goshitsarch-eng/gosh-dl-cli/releases/tag/v0.1.0
