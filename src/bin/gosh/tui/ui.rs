@@ -1,6 +1,7 @@
 use gosh_dl::types::{DownloadState, DownloadStatus};
 use ratatui::{
     prelude::*,
+    text::Line,
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 
@@ -79,8 +80,7 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme.border_style())
-        .title(" Downloads ")
-        .title_style(theme.title_style());
+        .title(Line::from(" Downloads ").style(theme.title_style()));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -178,8 +178,7 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme.border_style())
-        .title(" Details ")
-        .title_style(theme.title_style());
+        .title(Line::from(" Details ").style(theme.title_style()));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -278,8 +277,7 @@ fn render_help_dialog(frame: &mut Frame, app: &TuiApp) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme.title_style())
-        .title(" Help ")
-        .title_style(theme.title_style());
+        .title(Line::from(" Help ").style(theme.title_style()));
 
     let paragraph = Paragraph::new(help_text)
         .block(block)
@@ -300,8 +298,7 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme.title_style())
-                .title(" Add Download ")
-                .title_style(theme.title_style());
+                .title(Line::from(" Add Download ").style(theme.title_style()));
 
             let inner = block.inner(area);
             frame.render_widget(block, area);
@@ -336,8 +333,7 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme.warning_style())
-                .title(" Confirm ")
-                .title_style(theme.warning_style());
+                .title(Line::from(" Confirm ").style(theme.warning_style()));
 
             let paragraph = Paragraph::new(text)
                 .block(block)
@@ -355,8 +351,7 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme.error_style())
-                .title(" Error ")
-                .title_style(theme.error_style());
+                .title(Line::from(" Error ").style(theme.error_style()));
 
             let paragraph = Paragraph::new(text)
                 .block(block)

@@ -6,6 +6,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
+    text::Line,
     widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
 };
 
@@ -57,8 +58,7 @@ impl<'a> Widget for HelpDialog<'a> {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(self.border_style)
-            .title(self.title)
-            .title_style(self.title_style);
+            .title(Line::from(self.title).style(self.title_style));
 
         let paragraph = Paragraph::new(self.content)
             .block(block)
