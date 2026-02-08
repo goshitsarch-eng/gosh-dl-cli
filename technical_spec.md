@@ -2,7 +2,7 @@
 
 A native Rust download engine supporting HTTP/HTTPS and BitTorrent protocols.
 
-> **Note**: This document specifies the [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl) engine library that powers this CLI. For CLI usage and commands, see [README.md](README.md).
+> **Note**: This is a design-phase specification for the [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl) engine library. Some structural details (e.g., module layout) may have changed since initial implementation. For CLI usage, see [README.md](README.md).
 
 ---
 
@@ -33,7 +33,6 @@ A native Rust download engine supporting HTTP/HTTPS and BitTorrent protocols.
 src/
 ├── lib.rs                 # Public API, re-exports
 ├── engine.rs              # DownloadEngine - main coordinator
-├── types.rs               # Core types (DownloadId, Status, Progress)
 ├── error.rs               # Typed error hierarchy
 ├── config.rs              # EngineConfig and sub-configs
 ├── priority_queue.rs      # Priority-based download scheduling
@@ -891,7 +890,7 @@ Rules are evaluated in order; first matching rule wins. Empty rules list uses de
 pub struct EngineConfig {
     pub download_dir: PathBuf,
     pub max_concurrent_downloads: usize,        // Default: 5
-    pub max_connections_per_download: usize,    // Default: 16
+    pub max_connections_per_download: usize,    // Default: 8
     pub min_segment_size: u64,                  // Default: 1 MiB
     pub global_download_limit: Option<u64>,     // bytes/sec
     pub global_upload_limit: Option<u64>,       // bytes/sec

@@ -1,55 +1,158 @@
 # gosh
 
-[![Crates.io](https://img.shields.io/crates/v/gosh-dl-cli.svg)](https://crates.io/crates/gosh-dl-cli)
-[![Documentation](https://docs.rs/gosh-dl-cli/badge.svg)](https://docs.rs/gosh-dl-cli)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/goshitsarch-eng/gosh-dl-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/goshitsarch-eng/gosh-dl-cli/actions/workflows/ci.yml)
+A download manager for the terminal. HTTP/HTTPS with multi-connection acceleration, full BitTorrent support, and an optional TUI. Built on [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
 
-A fast, modern download manager CLI with HTTP/HTTPS multi-connection acceleration and full BitTorrent protocol support. Powered by [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
+## Install
 
-## Features
-
-- **HTTP/HTTPS Downloads**: Multi-connection segmented downloads (up to 16 parallel connections), automatic resume, checksum verification
-- **BitTorrent**: Full protocol support with DHT, PEX, magnet links, encryption, and WebSeeds
-- **Three Usage Modes**: Interactive TUI, direct aria2-style CLI, and scriptable commands
-- **Cross-Platform**: Linux, macOS, and Windows support
-
-## Installation
-
-### From Source
+From source (requires Rust 1.85+):
 
 ```bash
 git clone https://github.com/goshitsarch-eng/gosh-dl-cli
 cd gosh-dl-cli
 cargo build --release
-sudo cp target/release/gosh /usr/local/bin/
+cp target/release/gosh ~/.local/bin/   # or /usr/local/bin/
 ```
 
-### From Crates.io
+From crates.io:
 
 ```bash
 cargo install gosh-dl-cli
 ```
 
-### Pre-built Binaries
-
-Download from [GitHub Releases](https://github.com/goshitsarch-eng/gosh-dl-cli/releases).
-
-**Linux builds:** Statically linked with musl for maximum portability across all distributions (including Alpine).
-
-## Usage Modes
-
-gosh supports three distinct usage patterns:
-
-### 1. Interactive TUI Mode
-
-Launch without arguments to enter the full-screen terminal UI:
+Without the TUI (smaller binary, fewer dependencies):
 
 ```bash
-gosh
+cargo install gosh-dl-cli --no-default-features
 ```
 
-**TUI Keyboard Shortcuts:**
+Pre-built binaries are available on [GitHub Releases](https://github.com/goshitsarch-eng/gosh-dl-cli/releases). Linux builds are statically linked with musl.
+
+## Quick start
+
+Download a file:
+
+```bash
+gosh https://example.com/file.zip
+```
+
+Download to a specific directory with a custom filename:
+
+```bash
+gosh -d ~/Downloads -o archive.zip https://example.com/file.zip
+```
+
+Multiple files at once:
+
+```bash
+gosh https://example.com/a.zip https://example.com/b.zip
+```
+
+Torrents and magnet links work the same way:
+
+```bash
+gosh magnet:?xt=urn:btih:...
+gosh ./ubuntu.torrent
+```
+
+Launch the interactive TUI by running `gosh` with no arguments.
+
+## Usage modes
+
+gosh has three modes:
+
+**Direct mode** -- pass URLs as arguments and downloads start immediately with progress bars. This is the aria2-style workflow most people want.
+
+**TUI mode** -- run `gosh` with no arguments for a full-screen terminal interface. You can add, pause, resume, and monitor downloads interactively.
+
+**Command mode** -- use subcommands (`gosh add`, `gosh list`, etc.) for scripting and automation.
+
+## CLI reference
+
+### Global options
+
+These work with any mode or subcommand:
+
+| Flag | Description |
+|------|-------------|
+| `-c, --config <PATH>` | Config file path (env: `GOSH_CONFIG`) |
+| `-v, --verbose` | Increase log verbosity (`-v`, `-vv`, `-vvv`) |
+| `-q, --quiet` | Suppress output except errors |
+| `--output <FORMAT>` | Output format: `table`, `json`, `json-pretty` |
+| `--color <WHEN>` | Color output: `auto`, `always`, `never` |
+| `--proxy <URL>` | Proxy URL (`http://`, `https://`, `socks5://`) |
+| `--max-retries <N>` | Max retry attempts for failed downloads |
+
+### Direct mode options
+
+Used when passing URLs directly (`gosh [OPTIONS] <URL>...`):
+
+| Flag | Description |
+|------|-------------|
+| `-d, --dir <PATH>` | Output directory |
+| `-o, --out <NAME>` | Output filename (single download only) |
+| `-x, --max-connections <N>` | Connections per download (default: 8) |
+| `--max-speed <SPEED>` | Speed limit (supports `K`/`M`/`G` suffixes) |
+| `-H, --header <HEADER>` | Custom header (`"Name: Value"`) |
+| `--user-agent <UA>` | User agent string |
+| `--referer <URL>` | Referer URL |
+| `--cookie <COOKIE>` | Cookie (`"name=value"`) |
+| `--checksum <HASH>` | Verify checksum (`md5:...` or `sha256:...`) |
+| `--sequential` | Download pieces in order (torrents) |
+| `--select-files <IDX>` | Download specific files (comma-separated, torrents) |
+| `--seed-ratio <RATIO>` | Stop seeding after this ratio (torrents) |
+| `--no-dht` | Disable DHT |
+| `--no-pex` | Disable Peer Exchange |
+| `--no-lpd` | Disable Local Peer Discovery |
+| `--max-peers <N>` | Max peers per torrent |
+
+### Subcommands
+
+**`gosh add <URL>...`** -- Add downloads to the queue.
+
+Accepts all the direct mode options above, plus:
+
+| Flag | Description |
+|------|-------------|
+| `-p, --priority <LEVEL>` | `low`, `normal`, `high`, `critical` |
+| `-w, --wait` | Block until download completes |
+| `-i, --input-file <FILE>` | Read URLs from a file (one per line) |
+
+**`gosh list`** -- List all downloads.
+
+| Flag | Description |
+|------|-------------|
+| `-s, --state <STATE>` | Filter: `active`, `waiting`, `paused`, `completed`, `error` |
+| `--ids-only` | Print only download IDs |
+
+**`gosh status <ID>`** -- Show detailed status of a download.
+
+| Flag | Description |
+|------|-------------|
+| `--peers` | Show peer info (torrents) |
+| `--files` | Show file list (torrents) |
+
+**`gosh pause <ID>...`** -- Pause downloads. Use `all` to pause everything.
+
+**`gosh resume <ID>...`** -- Resume paused downloads. Use `all` to resume everything.
+
+**`gosh cancel <ID>...`** -- Cancel downloads.
+
+| Flag | Description |
+|------|-------------|
+| `--delete` | Also delete downloaded files |
+| `-y, --yes` | Skip confirmation |
+
+**`gosh priority <ID> <LEVEL>`** -- Set download priority (`low`, `normal`, `high`, `critical`).
+
+**`gosh stats`** -- Show global download/upload statistics.
+
+**`gosh info <FILE>`** -- Parse and display torrent file metadata.
+
+**`gosh config <ACTION>`** -- Manage configuration: `show`, `path`, `get <KEY>`, `set <KEY> <VALUE>`.
+
+**`gosh completions <SHELL>`** -- Generate shell completions for `bash`, `zsh`, `fish`, `elvish`, or `powershell`. Pipe the output to the appropriate completions directory for your shell.
+
+## TUI keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
@@ -58,367 +161,95 @@ gosh
 | `r` | Resume selected |
 | `c` | Cancel selected |
 | `d` | Cancel and delete files |
-| `1` | View all downloads |
-| `2` | View active only |
-| `3` | View completed only |
+| `1` / `2` / `3` | View all / active / completed |
 | `j`/`k` or arrows | Navigate |
-| `?` | Show help |
+| PgUp / PgDn | Scroll page |
+| `?` | Toggle help overlay |
 | `q` or Ctrl+C | Quit |
 
-### 2. Direct Download Mode (aria2-style)
-
-Pass URLs directly to download immediately with progress bars:
-
-```bash
-# Single download
-gosh https://example.com/file.zip
-
-# Multiple parallel downloads
-gosh https://example.com/file1.zip https://example.com/file2.zip
-
-# With options
-gosh -d /downloads -x 8 --max-speed 5M https://example.com/large-file.iso
-
-# Torrent/Magnet
-gosh magnet:?xt=urn:btih:...
-gosh /path/to/file.torrent
-```
-
-### 3. Command Mode
-
-Use subcommands for scriptable operations:
-
-```bash
-gosh add https://example.com/file.zip
-gosh list
-gosh status abc123
-gosh pause abc123
-gosh resume abc123
-```
-
-## Direct Download Options
-
-When using direct download mode (`gosh URL`), the following options are available:
-
-| Option | Description |
-|--------|-------------|
-| `-d, --dir <PATH>` | Output directory |
-| `-o, --out <NAME>` | Output filename (single download only) |
-| `-H, --header <HEADER>` | Custom header (format: "Name: Value") |
-| `--user-agent <UA>` | User agent string |
-| `--referer <URL>` | Referer URL |
-| `--cookie <COOKIE>` | Cookie (format: "name=value") |
-| `--checksum <HASH>` | Expected checksum (format: "md5:xxx" or "sha256:xxx") |
-| `-x, --max-connections <N>` | Max connections per download |
-| `--max-speed <SPEED>` | Max download speed (supports K/M/G suffixes) |
-| `--sequential` | Sequential download mode (for torrents) |
-| `--select-files <INDICES>` | Select specific files (comma-separated indices) |
-| `--seed-ratio <RATIO>` | Seed ratio limit for torrents |
-
-**Examples:**
-
-```bash
-# Download with custom headers and user agent
-gosh -H "Authorization: Bearer token" --user-agent "MyApp/1.0" https://api.example.com/file
-
-# Download with checksum verification
-gosh --checksum sha256:abc123... https://example.com/important-file.iso
-
-# Limit download speed to 5 MB/s with 8 connections
-gosh -x 8 --max-speed 5M https://example.com/large-file.zip
-
-# Download specific files from a torrent
-gosh --select-files 0,2,5 /path/to/multi-file.torrent
-
-# Sequential download for streaming
-gosh --sequential magnet:?xt=urn:btih:...
-```
-
-## Commands Reference
-
-### `gosh add`
-
-Add a new download to the queue.
-
-```bash
-gosh add [OPTIONS] <URL>...
-
-Options:
-  -d, --dir <PATH>            Output directory
-  -o, --out <NAME>            Output filename (single download only)
-  -p, --priority <PRIORITY>   Priority [low, normal, high, critical]
-  -w, --wait                  Wait for download to complete (show progress)
-  -i, --input-file <FILE>     Read URLs from file (one per line)
-  -H, --header <HEADER>       Custom header
-      --user-agent <UA>       User agent string
-      --referer <URL>         Referer URL
-      --cookie <COOKIE>       Cookie
-      --checksum <HASH>       Expected checksum
-  -x, --max-connections <N>   Max connections
-      --max-speed <SPEED>     Max download speed
-      --sequential            Sequential mode (torrents)
-      --select-files <IDX>    Select files (torrents)
-      --seed-ratio <RATIO>    Seed ratio (torrents)
-```
-
-### `gosh list`
-
-List all downloads.
-
-```bash
-gosh list [OPTIONS]
-
-Options:
-  -s, --state <STATE>   Filter by state [active, waiting, paused, completed, error]
-      --ids-only        Show only download IDs
-```
-
-### `gosh status`
-
-Show detailed status of a download.
-
-```bash
-gosh status [OPTIONS] <ID>
-
-Options:
-      --peers   Show peer information (torrents)
-      --files   Show file list (torrents)
-```
-
-### `gosh pause`
-
-Pause one or more downloads.
-
-```bash
-gosh pause <ID>...
-gosh pause all    # Pause all active downloads
-```
-
-### `gosh resume`
-
-Resume paused downloads.
-
-```bash
-gosh resume <ID>...
-gosh resume all   # Resume all paused downloads
-```
-
-### `gosh cancel`
-
-Cancel and optionally delete downloads.
-
-```bash
-gosh cancel [OPTIONS] <ID>...
-
-Options:
-      --delete   Also delete downloaded files
-  -y, --yes      Skip confirmation prompt
-```
-
-### `gosh priority`
-
-Set download priority.
-
-```bash
-gosh priority <ID> <PRIORITY>
-
-Priorities: low, normal, high, critical
-```
-
-### `gosh stats`
-
-Show global download/upload statistics.
-
-```bash
-gosh stats
-```
-
-Output:
-```
-Global Statistics
-=================
-
-Downloads:
-  Active:   2
-  Waiting:  5
-  Stopped:  10
-  Total:    17
-
-Speed:
-  Download: 5.2 MB/s
-  Upload:   1.1 MB/s
-```
-
-### `gosh info`
-
-Parse and display torrent file information.
-
-```bash
-gosh info <TORRENT_FILE>
-```
-
-### `gosh config`
-
-Manage configuration.
-
-```bash
-gosh config show              # Show current config
-gosh config path              # Show config file path
-gosh config get <KEY>         # Get a config value
-gosh config set <KEY> <VALUE> # Set a config value
-```
-
-## Global Options
-
-These options can be used with any command:
-
-| Option | Description |
-|--------|-------------|
-| `-c, --config <PATH>` | Config file path |
-| `-v, --verbose` | Increase verbosity (-v, -vv, -vvv) |
-| `-q, --quiet` | Suppress output except errors |
-| `--output <FORMAT>` | Output format [table, json, json-pretty] |
+The details panel at the bottom shows a speed graph sparkline for the selected download.
 
 ## Configuration
 
-Configuration file location: `~/.config/gosh/config.toml`
+Config file location: `~/.config/gosh-dl/config.toml`
+
+Override the path with `-c <PATH>` or the `GOSH_CONFIG` environment variable.
 
 ```toml
 [general]
 download_dir = "~/Downloads"
-log_level = "warn"
+log_level = "info"                      # trace, debug, info, warn, error
 
 [engine]
 max_concurrent_downloads = 5
-max_connections_per_download = 16
-global_download_limit = 0      # 0 = unlimited
+max_connections_per_download = 8
+global_download_limit = 0               # bytes/sec, 0 = unlimited
 global_upload_limit = 0
+max_retries = 3
+connect_timeout = 30                    # seconds
+read_timeout = 60
 
-# BitTorrent settings
+# BitTorrent
 enable_dht = true
 enable_pex = true
 enable_lpd = true
 max_peers = 55
 seed_ratio = 1.0
 
-# HTTP settings
-user_agent = "gosh/0.1"
-connect_timeout = 30
-read_timeout = 60
+# Proxy (overridden by --proxy flag or env vars)
+# proxy_url = "socks5://127.0.0.1:1080"
+
+# TLS (dangerous -- prefer --insecure flag for one-off use)
+# accept_invalid_certs = false
 
 [tui]
 refresh_rate_ms = 250
-theme = "dark"                 # or "light"
+theme = "dark"                          # or "light"
 show_speed_graph = true
+show_peers = true
+
+# Bandwidth scheduling -- rules are evaluated in order, first match wins
+# [[schedule.rules]]
+# start_hour = 9
+# end_hour = 17
+# days = "weekdays"                     # "all", "weekdays", "weekends", or "mon,tue,..."
+# download_limit = "2M"                 # K/M/G suffixes
+# upload_limit = "512K"
 ```
 
-## Exit Codes
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `GOSH_CONFIG` | Custom config file path |
+| `NO_COLOR` | Disable colored output (any value) |
+| `HTTPS_PROXY` | HTTPS proxy URL |
+| `HTTP_PROXY` | HTTP proxy URL |
+| `ALL_PROXY` | Fallback proxy URL |
+| `RUST_LOG` | Override log level filter |
+
+Proxy precedence: `--proxy` flag > config file > `HTTPS_PROXY` > `HTTP_PROXY` > `ALL_PROXY`.
+
+## Exit codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success (all downloads completed) |
-| 1 | Partial failure (some downloads failed) |
-| 2 | Total failure (all downloads failed) |
+| 0 | All downloads completed |
+| 1 | Some downloads failed |
+| 2 | All downloads failed |
 | 130 | Interrupted (Ctrl+C) |
 
-## Comparison with aria2
-
-gosh provides aria2-style command-line usage while offering a native Rust implementation:
-
-| Feature | aria2c | gosh |
-|---------|--------|------|
-| Direct download | `aria2c URL` | `gosh URL` |
-| Output directory | `-d /path` | `-d /path` |
-| Max connections | `-x 8` | `-x 8` |
-| Custom headers | `--header "..."` | `-H "..."` |
-| Interactive mode | N/A | `gosh` (TUI) |
-| Background daemon | `aria2c --enable-rpc` | Coming soon |
-
-## Examples
-
-### Download a File
+## Building from source
 
 ```bash
-# Simple download
-gosh https://example.com/file.zip
-
-# Download to specific directory
-gosh -d ~/Downloads https://example.com/file.zip
-
-# Download with custom filename
-gosh -o myfile.zip https://example.com/file.zip
+cargo build                     # debug build
+cargo build --release           # optimized (LTO + stripped)
+cargo test                      # run tests
+cargo build --no-default-features --release   # without TUI
 ```
 
-### Batch Downloads
-
-```bash
-# Multiple URLs
-gosh https://example.com/file1.zip https://example.com/file2.zip
-
-# From file
-gosh add -i urls.txt
-
-# Pipe from stdin
-cat urls.txt | gosh add -
-```
-
-### BitTorrent
-
-```bash
-# Magnet link
-gosh "magnet:?xt=urn:btih:..."
-
-# Torrent file
-gosh ubuntu-24.04.torrent
-
-# Select specific files
-gosh --select-files 0,1,2 multi-file.torrent
-
-# Sequential for streaming
-gosh --sequential movie.torrent
-```
-
-### Scripting
-
-```bash
-# JSON output for parsing
-gosh list --output json | jq '.[] | .id'
-
-# Check download status
-if gosh status abc123 --output json | jq -e '.state == "Completed"'; then
-  echo "Download finished!"
-fi
-
-# Monitor progress
-gosh add -w https://example.com/large-file.iso
-```
-
-## Building from Source
-
-```bash
-# Development build
-cargo build
-
-# Release build
-cargo build --release
-
-# Run tests
-cargo test
-
-# Run with verbose logging
-RUST_LOG=debug cargo run -- https://example.com/file.zip
-```
-
-## Requirements
-
-- Rust 1.75+ (for async trait support)
-- Linux, macOS, or Windows
+Release builds use thin LTO, symbol stripping, and single codegen unit for smaller binaries.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Related Projects
-
-- [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl) - The underlying download engine library
-- [docs.rs/gosh-dl-cli](https://docs.rs/gosh-dl-cli) - API documentation
+MIT -- see [LICENSE](LICENSE).

@@ -1,5 +1,7 @@
 # Product Requirements Document: gosh
 
+> **Note**: This is an internal planning document from the initial design phase. Some details (MSRV, feature status) may not reflect the current state of the code. For current usage docs, see [README.md](README.md).
+
 ## Product Overview
 
 gosh-dl-cli is a fast, modern download manager CLI with HTTP/HTTPS multi-connection acceleration and full BitTorrent protocol support. It provides three distinct usage modes: an interactive terminal UI, direct aria2-style downloads, and scriptable commands for automation.
@@ -160,7 +162,7 @@ gosh resume <download-id>
 - Exit codes suitable for scripting
 
 ### NFR5: Maintainability
-- Rust 1.75+ (async traits)
+- Rust 1.85+
 - Modular architecture separating engine from UI
 - Comprehensive type safety
 
@@ -188,6 +190,6 @@ gosh resume <download-id>
 
 - RPC daemon mode (aria2c JSON-RPC compatible)
 - Web UI for daemon mode
-- Bandwidth scheduling rules
-- Download queuing with priorities
 - Plugin system for protocol extensions
+
+*Note: Bandwidth scheduling and download queuing with priorities have been implemented.*
