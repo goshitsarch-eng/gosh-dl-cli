@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::app::App;
-use crate::util::{sanitize_filename, truncate_str};
 use crate::cli::{AddArgs, OutputFormat};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::output::table::print_add_results;
+use crate::util::{sanitize_filename, truncate_str};
 
 #[derive(Serialize)]
 pub struct AddResult {
@@ -299,4 +299,3 @@ async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {
 
     Ok(())
 }
-
