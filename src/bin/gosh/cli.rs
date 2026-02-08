@@ -98,6 +98,18 @@ pub struct Cli {
     #[arg(short = 'k', long, hide = true)]
     pub insecure: bool,
 
+    /// Maximum retries for failed downloads
+    #[arg(long, global = true)]
+    pub max_retries: Option<usize>,
+
+    /// Proxy URL (http://, https://, socks5://)
+    #[arg(long, global = true)]
+    pub proxy: Option<String>,
+
+    /// Color output control
+    #[arg(long, value_enum, default_value = "auto", global = true)]
+    pub color: ColorChoice,
+
     /// URLs to download directly (without entering TUI)
     #[arg(value_name = "URL")]
     pub urls: Vec<String>,
@@ -137,6 +149,9 @@ pub enum Commands {
 
     /// Manage configuration
     Config(ConfigArgs),
+
+    /// Generate shell completions
+    Completions(CompletionsArgs),
 }
 
 #[derive(Args)]
@@ -333,6 +348,20 @@ pub enum StateFilter {
     Completed,
     /// Failed with error
     Error,
+}
+
+#[derive(Args)]
+pub struct CompletionsArgs {
+    /// Shell to generate completions for
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorChoice {
+    Auto,
+    Always,
+    Never,
 }
 
 impl Priority {

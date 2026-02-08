@@ -1,5 +1,6 @@
 use ratatui::style::{Color, Modifier, Style};
 
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Theme {
     pub header_bg: Color,
@@ -54,7 +55,28 @@ impl Theme {
         }
     }
 
+    pub fn plain() -> Self {
+        Self {
+            header_bg: Color::Reset,
+            header_fg: Color::Reset,
+            selected_bg: Color::Reset,
+            selected_fg: Color::Reset,
+            normal_fg: Color::Reset,
+            muted_fg: Color::Reset,
+            success_fg: Color::Reset,
+            error_fg: Color::Reset,
+            warning_fg: Color::Reset,
+            progress_bar_filled: Color::Reset,
+            progress_bar_empty: Color::Reset,
+            border: Color::Reset,
+            title_fg: Color::Reset,
+        }
+    }
+
     pub fn from_name(name: &str) -> Self {
+        if !crate::format::color_enabled() {
+            return Self::plain();
+        }
         match name.to_lowercase().as_str() {
             "light" => Self::light(),
             _ => Self::dark(),

@@ -1,7 +1,5 @@
 // Speed graph widget (sparkline-style)
 
-#![allow(dead_code)]
-
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -12,12 +10,14 @@ use std::collections::VecDeque;
 
 const SPARKLINE_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
+#[allow(dead_code)]
 pub struct SpeedGraph<'a> {
     data: &'a VecDeque<(u64, u64)>,
     style: Style,
     show_upload: bool,
 }
 
+#[allow(dead_code)]
 impl<'a> SpeedGraph<'a> {
     pub fn new(data: &'a VecDeque<(u64, u64)>) -> Self {
         Self {

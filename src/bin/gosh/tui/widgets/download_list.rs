@@ -1,13 +1,12 @@
-// Download list widget - currently integrated in ui.rs
-// This module can be expanded for more complex list functionality
+// Download list widget - scroll state management for long lists
 
-#![allow(dead_code)]
-
+#[allow(dead_code)]
 pub struct DownloadListState {
     pub selected: usize,
     pub offset: usize,
 }
 
+#[allow(dead_code)]
 impl DownloadListState {
     pub fn new() -> Self {
         Self {

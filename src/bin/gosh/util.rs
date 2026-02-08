@@ -90,6 +90,21 @@ pub fn sanitize_filename(name: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
+/// Parse a speed string with optional K/M/G suffix into bytes per second.
+pub fn parse_speed(s: &str) -> Result<u64> {
+    let s = s.trim().to_uppercase();
+
+    if let Some(num) = s.strip_suffix('K') {
+        Ok(num.parse::<u64>()? * 1024)
+    } else if let Some(num) = s.strip_suffix('M') {
+        Ok(num.parse::<u64>()? * 1024 * 1024)
+    } else if let Some(num) = s.strip_suffix('G') {
+        Ok(num.parse::<u64>()? * 1024 * 1024 * 1024)
+    } else {
+        Ok(s.parse()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +161,32 @@ mod tests {
     fn sanitize_rejects_empty() {
         assert!(sanitize_filename("").is_err());
         assert!(sanitize_filename("   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_speed_bytes() {
+        assert_eq!(parse_speed("1000").unwrap(), 1000);
+    }
+
+    #[test]
+    fn test_parse_speed_k() {
+        assert_eq!(parse_speed("1K").unwrap(), 1024);
+        assert_eq!(parse_speed("2k").unwrap(), 2048);
+    }
+
+    #[test]
+    fn test_parse_speed_m() {
+        assert_eq!(parse_speed("1M").unwrap(), 1024 * 1024);
+        assert_eq!(parse_speed("5m").unwrap(), 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_speed_g() {
+        assert_eq!(parse_speed("1G").unwrap(), 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_speed_invalid() {
+        assert!(parse_speed("abc").is_err());
     }
 }
