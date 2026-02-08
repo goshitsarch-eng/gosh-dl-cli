@@ -37,9 +37,11 @@ pub struct TuiApp {
     /// Currently selected download index
     pub selected: usize,
 
-    /// Scroll offset for download list (reserved for future use)
-    #[allow(dead_code)]
+    /// Scroll offset for download list
     pub scroll_offset: usize,
+
+    /// Last known visible height for download list
+    pub last_visible_height: usize,
 
     /// Speed history for graph (last 60 samples: download, upload)
     pub speed_history: VecDeque<(u64, u64)>,
@@ -109,6 +111,7 @@ impl TuiApp {
             downloads,
             selected: 0,
             scroll_offset: 0,
+            last_visible_height: 20,
             speed_history: VecDeque::with_capacity(60),
             show_help: false,
             dialog: None,
@@ -379,10 +382,26 @@ impl TuiApp {
         self.downloads.get(self.selected)
     }
 
+    /// Adjust scroll offset to keep selected item visible
+    pub fn adjust_scroll(&mut self, visible_height: usize) {
+        let total = self.downloads.len();
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        } else if self.selected >= self.scroll_offset + visible_height {
+            self.scroll_offset = self.selected - visible_height + 1;
+        }
+        if total <= visible_height {
+            self.scroll_offset = 0;
+        } else if self.scroll_offset > total - visible_height {
+            self.scroll_offset = total - visible_height;
+        }
+    }
+
     /// Select next item
     fn select_next(&mut self) {
         if !self.downloads.is_empty() {
             self.selected = (self.selected + 1).min(self.downloads.len() - 1);
+            self.adjust_scroll(self.last_visible_height);
         }
     }
 
@@ -390,6 +409,7 @@ impl TuiApp {
     fn select_prev(&mut self) {
         if self.selected > 0 {
             self.selected -= 1;
+            self.adjust_scroll(self.last_visible_height);
         }
     }
 

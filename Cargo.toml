@@ -9,6 +9,10 @@ repository = "https://github.com/goshitsarch-eng/gosh-dl-cli"
 keywords = ["download", "cli", "tui", "download-manager"]
 categories = ["command-line-utilities"]
 
+[features]
+default = ["tui"]
+tui = ["dep:ratatui", "dep:crossterm", "dep:futures-util"]
+
 # Binary target (CLI)
 [[bin]]
 name = "gosh"
@@ -43,10 +47,11 @@ urlencoding = "2"
 # === CLI Dependencies ===
 # CLI argument parsing
 clap = { version = "4", features = ["derive", "env", "wrap_help", "color"] }
+clap_complete = "4"
 
 # TUI framework
-ratatui = { version = "0.30", features = ["crossterm"] }
-crossterm = { version = "0.29", features = ["event-stream"] }
+ratatui = { version = "0.30", features = ["crossterm"], optional = true }
+crossterm = { version = "0.29", features = ["event-stream"], optional = true }
 
 # Progress bars for non-TUI mode
 indicatif = "0.18"
@@ -59,12 +64,15 @@ directories = "6"
 anyhow = "1.0.100"
 
 # Async utilities for TUI
-futures-util = "0.3"
+futures-util = { version = "0.3", optional = true }
 
 # Logging for CLI
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
 tokio-test = "0.4"
 
 [profile.release]

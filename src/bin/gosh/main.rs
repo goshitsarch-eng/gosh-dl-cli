@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod app;
@@ -10,6 +10,7 @@ mod direct;
 mod format;
 mod input;
 mod output;
+#[cfg(feature = "tui")]
 mod tui;
 mod util;
 
@@ -20,7 +21,7 @@ async fn main() {
     let code = match run().await {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("Error: {e:#}");
+            format::print_error(&format!("{e:#}"));
             1
         }
     };
@@ -31,13 +32,34 @@ async fn run() -> Result<i32> {
     // Parse CLI arguments
     let cli = Cli::parse();
 
+    // Initialize color output
+    format::init_color(match cli.color {
+        cli::ColorChoice::Auto => None,
+        cli::ColorChoice::Always => Some(true),
+        cli::ColorChoice::Never => Some(false),
+    });
+
+    // Handle completions early (no engine needed)
+    if let Some(Commands::Completions(ref args)) = cli.command {
+        clap_complete::generate(
+            args.shell,
+            &mut Cli::command(),
+            "gosh",
+            &mut std::io::stdout(),
+        );
+        return Ok(0);
+    }
+
     // Setup logging based on verbosity
     setup_logging(cli.verbose, cli.quiet)?;
 
     // Load config file
     let mut config = config::CliConfig::load(cli.config.as_deref())?;
 
-    // Apply CLI overrides to config
+    // Apply environment variable overrides first
+    config.apply_env_overrides();
+
+    // Apply CLI overrides to config (CLI takes precedence)
     if cli.no_dht {
         config.engine.enable_dht = false;
     }
@@ -50,9 +72,15 @@ async fn run() -> Result<i32> {
     if let Some(n) = cli.max_peers {
         config.engine.max_peers = n;
     }
+    if let Some(r) = cli.max_retries {
+        config.engine.max_retries = r;
+    }
+    if let Some(ref proxy) = cli.proxy {
+        config.engine.proxy_url = Some(proxy.clone());
+    }
     if cli.insecure {
         config.engine.accept_invalid_certs = true;
-        eprintln!("Warning: TLS certificate verification disabled");
+        format::print_warning("TLS certificate verification disabled");
     }
 
     // Route to appropriate handler
@@ -80,8 +108,16 @@ async fn run() -> Result<i32> {
         direct::execute(opts, config).await
     } else {
         // No URLs and no subcommand - launch TUI
-        run_tui(config).await?;
-        Ok(0)
+        #[cfg(feature = "tui")]
+        {
+            run_tui(config).await?;
+            Ok(0)
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            format::print_error("TUI not available. Pass URLs to download directly.");
+            Ok(1)
+        }
     }
 }
 
@@ -126,9 +162,11 @@ async fn run_command(
         Commands::Stats => commands::stats::execute(&app, output_format).await,
         Commands::Info(args) => commands::info::execute(args, output_format).await,
         Commands::Config(args) => commands::config::execute(args, &app.config).await,
+        Commands::Completions(_) => unreachable!("handled before engine init"),
     }
 }
 
+#[cfg(feature = "tui")]
 async fn run_tui(config: config::CliConfig) -> Result<()> {
     let mut tui_app = tui::TuiApp::new(config).await?;
     tui_app.run().await

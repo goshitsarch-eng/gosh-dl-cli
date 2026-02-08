@@ -6,11 +6,12 @@ use ratatui::{
 };
 
 use super::app::{DialogState, TuiApp, ViewMode};
+use super::widgets::speed_graph;
 use crate::format::{format_duration, format_size, format_speed, format_state};
 use crate::util::truncate_str;
 
 /// Main render function
-pub fn render(frame: &mut Frame, app: &TuiApp) {
+pub fn render(frame: &mut Frame, app: &mut TuiApp) {
     let _theme = app.theme();
 
     // Main layout
@@ -19,7 +20,7 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
         .constraints([
             Constraint::Length(1), // Header
             Constraint::Fill(1),   // Download list - takes remaining space
-            Constraint::Length(7), // Details panel
+            Constraint::Length(8), // Details panel (including speed graph)
             Constraint::Length(1), // Status bar
         ])
         .split(frame.area());
@@ -27,7 +28,7 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
     // Render header
     render_header(frame, chunks[0], app);
 
-    // Render download list
+    // Render download list (with scrolling)
     render_download_list(frame, chunks[1], app);
 
     // Render details panel
@@ -76,8 +77,8 @@ fn render_header(frame: &mut Frame, area: Rect, app: &TuiApp) {
     frame.render_widget(header, area);
 }
 
-fn render_download_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
-    let theme = app.theme();
+fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
+    let theme = app.theme().clone();
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -95,14 +96,19 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
         return;
     }
 
-    // Create list items
-    let items: Vec<ListItem> = app
-        .downloads
+    let visible_height = inner.height as usize;
+    app.last_visible_height = visible_height;
+    app.adjust_scroll(visible_height);
+
+    let end = (app.scroll_offset + visible_height).min(app.downloads.len());
+
+    // Create list items (only visible range)
+    let items: Vec<ListItem> = app.downloads[app.scroll_offset..end]
         .iter()
         .enumerate()
         .map(|(i, dl)| {
-            let is_selected = i == app.selected;
-            create_download_item(dl, is_selected, theme)
+            let is_selected = i + app.scroll_offset == app.selected;
+            create_download_item(dl, is_selected, &theme)
         })
         .collect();
 
@@ -194,11 +200,20 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
         let completed = format_size(dl.progress.completed_size);
         let state = format_state(&dl.state);
 
+        let dl_sparkline = speed_graph::sparkline_string(
+            &app.speed_history
+                .iter()
+                .map(|(d, _)| *d)
+                .collect::<Vec<_>>(),
+            30,
+        );
+
         let details = format!(
             "Name: {}\n\
              State: {}  │  Progress: {:.1}%  │  Size: {} / {}\n\
              Speed: {} ↓  {} ↑  │  Connections: {}  │  ETA: {}\n\
-             Path: {}",
+             Path: {}\n\
+             Speed graph: {}",
             dl.metadata.name,
             state,
             dl.progress.percentage(),
@@ -211,7 +226,8 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
                 .eta_seconds
                 .map(format_duration)
                 .unwrap_or_else(|| "--".to_string()),
-            dl.metadata.save_dir.display()
+            dl.metadata.save_dir.display(),
+            dl_sparkline,
         );
 
         let paragraph = Paragraph::new(details)
@@ -385,5 +401,3 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ])
         .split(popup_layout[1])[1]
 }
-
-

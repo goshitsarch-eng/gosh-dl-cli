@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use crate::app::App;
 use crate::config::CliConfig;
+use crate::format::{print_error, print_warning};
 use crate::input::url_parser::{parse_input, ParsedInput};
-use crate::util::{sanitize_filename, truncate_str};
+use crate::util::{parse_speed, sanitize_filename, truncate_str};
 
 /// Options for direct download mode
 pub struct DirectOptions {
@@ -122,7 +123,7 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
 
     if downloads.is_empty() {
         app.shutdown().await?;
-        eprintln!("All downloads failed to start");
+        print_error("All downloads failed to start");
         return Ok(exit_codes::TOTAL_FAILURE);
     }
 
@@ -215,13 +216,13 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
     if failed_count == 0 {
         Ok(exit_codes::SUCCESS)
     } else if completed_count > 0 {
-        eprintln!(
-            "\n{}/{} downloads completed, {} failed",
+        print_warning(&format!(
+            "{}/{} downloads completed, {} failed",
             completed_count, total, failed_count
-        );
+        ));
         Ok(exit_codes::PARTIAL_FAILURE)
     } else {
-        eprintln!("\nAll {} downloads failed", total);
+        print_error(&format!("All {} downloads failed", total));
         Ok(exit_codes::TOTAL_FAILURE)
     }
 }
@@ -304,19 +305,5 @@ fn parse_checksum(s: &str) -> Result<gosh_dl::http::ExpectedChecksum> {
         Ok(gosh_dl::http::ExpectedChecksum::sha256(hash.to_string()))
     } else {
         bail!("Invalid checksum format. Use 'md5:HASH' or 'sha256:HASH'")
-    }
-}
-
-fn parse_speed(s: &str) -> Result<u64> {
-    let s = s.trim().to_uppercase();
-
-    if let Some(num) = s.strip_suffix('K') {
-        Ok(num.parse::<u64>()? * 1024)
-    } else if let Some(num) = s.strip_suffix('M') {
-        Ok(num.parse::<u64>()? * 1024 * 1024)
-    } else if let Some(num) = s.strip_suffix('G') {
-        Ok(num.parse::<u64>()? * 1024 * 1024 * 1024)
-    } else {
-        Ok(s.parse()?)
     }
 }

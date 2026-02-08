@@ -90,23 +90,38 @@ pub fn sanitize_filename(name: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
+/// Parse a speed string with optional K/M/G suffix into bytes per second.
+pub fn parse_speed(s: &str) -> Result<u64> {
+    let s = s.trim().to_uppercase();
+
+    if let Some(num) = s.strip_suffix('K') {
+        Ok(num.parse::<u64>()? * 1024)
+    } else if let Some(num) = s.strip_suffix('M') {
+        Ok(num.parse::<u64>()? * 1024 * 1024)
+    } else if let Some(num) = s.strip_suffix('G') {
+        Ok(num.parse::<u64>()? * 1024 * 1024 * 1024)
+    } else {
+        Ok(s.parse()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn truncate_ascii() {
-        assert_eq!(truncate_str("hello world", 11),"hello world");
-        assert_eq!(truncate_str("hello world", 8),"hello...");
+        assert_eq!(truncate_str("hello world", 11), "hello world");
+        assert_eq!(truncate_str("hello world", 8), "hello...");
     }
 
     #[test]
     fn truncate_emoji() {
         // "Hello 🌍!" is 11 bytes (🌍 = 4 bytes)
-        assert_eq!(truncate_str("Hello 🌍!", 11),"Hello 🌍!");
-        assert_eq!(truncate_str("Hello 🌍!", 8),"Hello...");
+        assert_eq!(truncate_str("Hello 🌍!", 11), "Hello 🌍!");
+        assert_eq!(truncate_str("Hello 🌍!", 8), "Hello...");
         // 🌍 is 4 bytes at offset 6; including it + "..." = 13 bytes > 10
-        assert_eq!(truncate_str("Hello 🌍!", 10),"Hello ...");
+        assert_eq!(truncate_str("Hello 🌍!", 10), "Hello ...");
         // "Hi 🌍 bye" = 11 bytes; emoji preserved when room allows
         assert_eq!(truncate_str("Hi 🌍 bye", 11), "Hi 🌍 bye");
         assert_eq!(truncate_str("Hi 🌍 bye", 10), "Hi 🌍...");
@@ -115,14 +130,14 @@ mod tests {
     #[test]
     fn truncate_cjk() {
         // Each CJK char is 3 bytes
-        assert_eq!(truncate_str("你好世界", 12),"你好世界");
-        assert_eq!(truncate_str("你好世界", 9),"你好...");
+        assert_eq!(truncate_str("你好世界", 12), "你好世界");
+        assert_eq!(truncate_str("你好世界", 9), "你好...");
     }
 
     #[test]
     fn truncate_short() {
-        assert_eq!(truncate_str("abc", 3),"abc");
-        assert_eq!(truncate_str("abc", 2),"...");
+        assert_eq!(truncate_str("abc", 3), "abc");
+        assert_eq!(truncate_str("abc", 2), "...");
     }
 
     #[test]
@@ -146,5 +161,32 @@ mod tests {
     fn sanitize_rejects_empty() {
         assert!(sanitize_filename("").is_err());
         assert!(sanitize_filename("   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_speed_bytes() {
+        assert_eq!(parse_speed("1000").unwrap(), 1000);
+    }
+
+    #[test]
+    fn test_parse_speed_k() {
+        assert_eq!(parse_speed("1K").unwrap(), 1024);
+        assert_eq!(parse_speed("2k").unwrap(), 2048);
+    }
+
+    #[test]
+    fn test_parse_speed_m() {
+        assert_eq!(parse_speed("1M").unwrap(), 1024 * 1024);
+        assert_eq!(parse_speed("5m").unwrap(), 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_speed_g() {
+        assert_eq!(parse_speed("1G").unwrap(), 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_speed_invalid() {
+        assert!(parse_speed("abc").is_err());
     }
 }

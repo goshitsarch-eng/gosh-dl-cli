@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
+use chrono::Weekday;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+use crate::util::parse_speed;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -8,6 +11,22 @@ pub struct CliConfig {
     pub general: GeneralConfig,
     pub engine: EngineSettings,
     pub tui: TuiConfig,
+    pub schedule: ScheduleConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScheduleConfig {
+    pub rules: Vec<ScheduleRuleConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleRuleConfig {
+    pub start_hour: u8,
+    pub end_hour: u8,
+    pub days: String,
+    pub download_limit: Option<String>,
+    pub upload_limit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,6 +188,19 @@ impl CliConfig {
             .unwrap_or_else(|| PathBuf::from("gosh-config.toml"))
     }
 
+    /// Apply environment variable overrides (proxy)
+    pub fn apply_env_overrides(&mut self) {
+        if self.engine.proxy_url.is_none() {
+            self.engine.proxy_url = std::env::var("HTTPS_PROXY")
+                .or_else(|_| std::env::var("https_proxy"))
+                .or_else(|_| std::env::var("HTTP_PROXY"))
+                .or_else(|_| std::env::var("http_proxy"))
+                .or_else(|_| std::env::var("ALL_PROXY"))
+                .or_else(|_| std::env::var("all_proxy"))
+                .ok();
+        }
+    }
+
     /// Convert to engine configuration
     pub fn to_engine_config(&self) -> gosh_dl::config::EngineConfig {
         gosh_dl::config::EngineConfig {
@@ -178,7 +210,17 @@ impl CliConfig {
             min_segment_size: self.engine.min_segment_size,
             global_download_limit: self.engine.global_download_limit,
             global_upload_limit: self.engine.global_upload_limit,
-            schedule_rules: Vec::new(),
+            schedule_rules: self
+                .schedule
+                .rules
+                .iter()
+                .map(|r| {
+                    let days = parse_schedule_days(&r.days);
+                    let dl = r.download_limit.as_ref().and_then(|s| parse_speed(s).ok());
+                    let ul = r.upload_limit.as_ref().and_then(|s| parse_speed(s).ok());
+                    gosh_dl::ScheduleRule::new(r.start_hour, r.end_hour, days, dl, ul)
+                })
+                .collect(),
             user_agent: self.engine.user_agent.clone(),
             enable_dht: self.engine.enable_dht,
             enable_pex: self.engine.enable_pex,
@@ -217,5 +259,32 @@ impl CliConfig {
             .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
 
         Ok(())
+    }
+}
+
+fn parse_schedule_days(s: &str) -> Vec<Weekday> {
+    match s.to_lowercase().as_str() {
+        "all" | "" => Vec::new(),
+        "weekdays" => vec![
+            Weekday::Mon,
+            Weekday::Tue,
+            Weekday::Wed,
+            Weekday::Thu,
+            Weekday::Fri,
+        ],
+        "weekends" => vec![Weekday::Sat, Weekday::Sun],
+        other => other
+            .split(',')
+            .filter_map(|d| match d.trim().to_lowercase().as_str() {
+                "mon" => Some(Weekday::Mon),
+                "tue" => Some(Weekday::Tue),
+                "wed" => Some(Weekday::Wed),
+                "thu" => Some(Weekday::Thu),
+                "fri" => Some(Weekday::Fri),
+                "sat" => Some(Weekday::Sat),
+                "sun" => Some(Weekday::Sun),
+                _ => None,
+            })
+            .collect(),
     }
 }
