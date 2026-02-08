@@ -78,6 +78,26 @@ pub struct Cli {
     #[arg(long)]
     pub seed_ratio: Option<f64>,
 
+    /// Disable DHT for BitTorrent
+    #[arg(long)]
+    pub no_dht: bool,
+
+    /// Disable Peer Exchange for BitTorrent
+    #[arg(long)]
+    pub no_pex: bool,
+
+    /// Disable Local Peer Discovery for BitTorrent
+    #[arg(long)]
+    pub no_lpd: bool,
+
+    /// Maximum peers per torrent
+    #[arg(long)]
+    pub max_peers: Option<usize>,
+
+    /// Accept invalid TLS certificates (DANGER)
+    #[arg(short = 'k', long, hide = true)]
+    pub insecure: bool,
+
     /// URLs to download directly (without entering TUI)
     #[arg(value_name = "URL")]
     pub urls: Vec<String>,

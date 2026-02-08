@@ -49,7 +49,7 @@ struct DownloadInfo {
 }
 
 /// Execute direct download mode for the given URLs
-pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
+pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
     if opts.urls.is_empty() {
         bail!("No URLs provided");
     }
@@ -123,7 +123,7 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
     if downloads.is_empty() {
         app.shutdown().await?;
         eprintln!("All downloads failed to start");
-        std::process::exit(exit_codes::TOTAL_FAILURE);
+        return Ok(exit_codes::TOTAL_FAILURE);
     }
 
     // Subscribe to events and monitor progress
@@ -149,7 +149,7 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
                     }
                 }
                 app.shutdown().await?;
-                std::process::exit(exit_codes::INTERRUPTED);
+                return Ok(exit_codes::INTERRUPTED);
             }
             event = events.recv() => {
                 match event {
@@ -213,16 +213,16 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
     let total = inputs.len();
 
     if failed_count == 0 {
-        std::process::exit(exit_codes::SUCCESS);
+        Ok(exit_codes::SUCCESS)
     } else if completed_count > 0 {
         eprintln!(
             "\n{}/{} downloads completed, {} failed",
             completed_count, total, failed_count
         );
-        std::process::exit(exit_codes::PARTIAL_FAILURE);
+        Ok(exit_codes::PARTIAL_FAILURE)
     } else {
         eprintln!("\nAll {} downloads failed", total);
-        std::process::exit(exit_codes::TOTAL_FAILURE);
+        Ok(exit_codes::TOTAL_FAILURE)
     }
 }
 
@@ -320,4 +320,3 @@ fn parse_speed(s: &str) -> Result<u64> {
         Ok(s.parse()?)
     }
 }
-

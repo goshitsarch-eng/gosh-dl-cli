@@ -22,6 +22,7 @@ pub enum AppEvent {
 pub struct EventHandler {
     engine_events: broadcast::Receiver<DownloadEvent>,
     tick_rate: Duration,
+    terminal_reader: crossterm::event::EventStream,
 }
 
 impl EventHandler {
@@ -29,6 +30,7 @@ impl EventHandler {
         Self {
             engine_events,
             tick_rate,
+            terminal_reader: crossterm::event::EventStream::new(),
         }
     }
 
@@ -38,17 +40,17 @@ impl EventHandler {
 
         tokio::select! {
             // Check for terminal events
-            result = poll_terminal_event() => {
+            result = self.terminal_reader.next() => {
                 match result {
-                    Ok(Some(event)) => {
+                    Some(Ok(event)) => {
                         if let CrosstermEvent::Resize(w, h) = event {
                             Ok(AppEvent::Resize(w, h))
                         } else {
                             Ok(AppEvent::Terminal(event))
                         }
                     }
-                    Ok(None) => Ok(AppEvent::Tick),
-                    Err(e) => Err(e),
+                    Some(Err(e)) => Err(e.into()),
+                    None => Ok(AppEvent::Tick),
                 }
             }
             // Check for engine events
@@ -69,25 +71,6 @@ impl EventHandler {
             _ = tick => {
                 Ok(AppEvent::Tick)
             }
-        }
-    }
-}
-
-/// Poll for terminal events with a short timeout
-async fn poll_terminal_event() -> Result<Option<CrosstermEvent>> {
-    // Use async polling with crossterm's event-stream feature
-    let mut reader = crossterm::event::EventStream::new();
-
-    tokio::select! {
-        result = reader.next() => {
-            match result {
-                Some(Ok(event)) => Ok(Some(event)),
-                Some(Err(e)) => Err(e.into()),
-                None => Ok(None),
-            }
-        }
-        _ = tokio::time::sleep(Duration::from_millis(50)) => {
-            Ok(None)
         }
     }
 }

@@ -3,6 +3,7 @@ use serde::Serialize;
 
 use crate::app::App;
 use crate::cli::OutputFormat;
+use crate::format::format_speed;
 
 #[derive(Serialize)]
 struct GlobalStats {
@@ -24,8 +25,8 @@ pub async fn execute(app: &App, output: OutputFormat) -> Result<()> {
         num_stopped: stats.num_stopped,
         download_speed: stats.download_speed,
         upload_speed: stats.upload_speed,
-        download_speed_formatted: format_speed(stats.download_speed),
-        upload_speed_formatted: format_speed(stats.upload_speed),
+        download_speed_formatted: format!("{}/s", format_speed(stats.download_speed)),
+        upload_speed_formatted: format!("{}/s", format_speed(stats.upload_speed)),
     };
 
     match output {
@@ -49,27 +50,10 @@ pub async fn execute(app: &App, output: OutputFormat) -> Result<()> {
             );
             println!();
             println!("Speed:");
-            println!("  Download: {}", format_speed(stats.download_speed));
-            println!("  Upload:   {}", format_speed(stats.upload_speed));
+            println!("  Download: {}/s", format_speed(stats.download_speed));
+            println!("  Upload:   {}/s", format_speed(stats.upload_speed));
         }
     }
 
     Ok(())
-}
-
-fn format_speed(bytes_per_sec: u64) -> String {
-    if bytes_per_sec == 0 {
-        "0 B/s".to_string()
-    } else if bytes_per_sec < 1024 {
-        format!("{} B/s", bytes_per_sec)
-    } else if bytes_per_sec < 1024 * 1024 {
-        format!("{:.1} KB/s", bytes_per_sec as f64 / 1024.0)
-    } else if bytes_per_sec < 1024 * 1024 * 1024 {
-        format!("{:.2} MB/s", bytes_per_sec as f64 / (1024.0 * 1024.0))
-    } else {
-        format!(
-            "{:.2} GB/s",
-            bytes_per_sec as f64 / (1024.0 * 1024.0 * 1024.0)
-        )
-    }
 }

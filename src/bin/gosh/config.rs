@@ -73,6 +73,9 @@ pub struct EngineSettings {
 
     /// Maximum retries for failed downloads
     pub max_retries: usize,
+
+    /// Accept invalid TLS certificates (insecure)
+    pub accept_invalid_certs: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +115,7 @@ impl Default for EngineSettings {
     fn default() -> Self {
         Self {
             max_concurrent_downloads: 5,
-            max_connections_per_download: 16,
+            max_connections_per_download: 8,
             min_segment_size: 1024 * 1024, // 1 MiB
             global_download_limit: None,
             global_upload_limit: None,
@@ -126,6 +129,7 @@ impl Default for EngineSettings {
             connect_timeout: 30,
             read_timeout: 60,
             max_retries: 3,
+            accept_invalid_certs: false,
         }
     }
 }
@@ -189,7 +193,7 @@ impl CliConfig {
                 max_retries: self.engine.max_retries,
                 retry_delay_ms: 1000,
                 max_retry_delay_ms: 30000,
-                accept_invalid_certs: false,
+                accept_invalid_certs: self.engine.accept_invalid_certs,
                 proxy_url: self.engine.proxy_url.clone(),
             },
             torrent: gosh_dl::config::TorrentConfig::default(),

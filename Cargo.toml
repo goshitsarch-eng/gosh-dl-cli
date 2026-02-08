@@ -55,12 +55,8 @@ indicatif = "0.18"
 toml = "0.9"
 directories = "6"
 
-# Human-readable formatting
-humantime = "2"
-
 # Error handling for CLI
 anyhow = "1.0.100"
-color-eyre = "0.6"
 
 # Async utilities for TUI
 futures-util = "0.3"

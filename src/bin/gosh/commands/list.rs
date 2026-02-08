@@ -3,6 +3,7 @@ use gosh_dl::DownloadStatus;
 
 use crate::app::App;
 use crate::cli::{ListArgs, OutputFormat, StateFilter};
+use crate::format::format_speed;
 use crate::output::table::print_download_table;
 
 pub async fn execute(args: ListArgs, app: &App, output: OutputFormat) -> Result<()> {
@@ -47,7 +48,7 @@ pub async fn execute(args: ListArgs, app: &App, output: OutputFormat) -> Result<
         );
         if stats.download_speed > 0 || stats.upload_speed > 0 {
             println!(
-                "Speed: {} down, {} up",
+                "Speed: {}/s down, {}/s up",
                 format_speed(stats.download_speed),
                 format_speed(stats.upload_speed)
             );
@@ -79,21 +80,4 @@ fn filter_errors(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
         .filter(|d| matches!(d.state, gosh_dl::DownloadState::Error { .. }))
         .cloned()
         .collect()
-}
-
-fn format_speed(bytes_per_sec: u64) -> String {
-    if bytes_per_sec == 0 {
-        "0 B/s".to_string()
-    } else if bytes_per_sec < 1024 {
-        format!("{} B/s", bytes_per_sec)
-    } else if bytes_per_sec < 1024 * 1024 {
-        format!("{:.1} KB/s", bytes_per_sec as f64 / 1024.0)
-    } else if bytes_per_sec < 1024 * 1024 * 1024 {
-        format!("{:.2} MB/s", bytes_per_sec as f64 / (1024.0 * 1024.0))
-    } else {
-        format!(
-            "{:.2} GB/s",
-            bytes_per_sec as f64 / (1024.0 * 1024.0 * 1024.0)
-        )
-    }
 }

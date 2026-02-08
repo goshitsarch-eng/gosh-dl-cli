@@ -7,6 +7,7 @@ mod cli;
 mod commands;
 mod config;
 mod direct;
+mod format;
 mod input;
 mod output;
 mod tui;
@@ -15,10 +16,18 @@ mod util;
 use cli::{Cli, Commands};
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Initialize color-eyre for pretty error reports
-    color_eyre::install().ok();
+async fn main() {
+    let code = match run().await {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            1
+        }
+    };
+    std::process::exit(code);
+}
 
+async fn run() -> Result<i32> {
     // Parse CLI arguments
     let cli = Cli::parse();
 
@@ -26,12 +35,31 @@ async fn main() -> Result<()> {
     setup_logging(cli.verbose, cli.quiet)?;
 
     // Load config file
-    let config = config::CliConfig::load(cli.config.as_deref())?;
+    let mut config = config::CliConfig::load(cli.config.as_deref())?;
+
+    // Apply CLI overrides to config
+    if cli.no_dht {
+        config.engine.enable_dht = false;
+    }
+    if cli.no_pex {
+        config.engine.enable_pex = false;
+    }
+    if cli.no_lpd {
+        config.engine.enable_lpd = false;
+    }
+    if let Some(n) = cli.max_peers {
+        config.engine.max_peers = n;
+    }
+    if cli.insecure {
+        config.engine.accept_invalid_certs = true;
+        eprintln!("Warning: TLS certificate verification disabled");
+    }
 
     // Route to appropriate handler
     if let Some(cmd) = cli.command {
         // Subcommand provided - run it
-        run_command(cmd, config, cli.output).await
+        run_command(cmd, config, cli.output).await?;
+        Ok(0)
     } else if !cli.urls.is_empty() {
         // URLs provided without subcommand - direct download mode
         let opts = direct::DirectOptions {
@@ -52,7 +80,8 @@ async fn main() -> Result<()> {
         direct::execute(opts, config).await
     } else {
         // No URLs and no subcommand - launch TUI
-        run_tui(config).await
+        run_tui(config).await?;
+        Ok(0)
     }
 }
 
