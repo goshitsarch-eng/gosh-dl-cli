@@ -1,6 +1,6 @@
 [package]
 name = "gosh-dl-cli"
-version = "0.1.2"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.85"
 description = "Command-line interface for the gosh-dl download engine"
