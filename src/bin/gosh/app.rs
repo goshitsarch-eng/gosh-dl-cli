@@ -1,6 +1,6 @@
 use anyhow::Result;
-use gosh_dl::engine::DownloadEngine;
-use gosh_dl::types::DownloadEvent;
+use gosh_dl::DownloadEngine;
+use gosh_dl::DownloadEvent;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 

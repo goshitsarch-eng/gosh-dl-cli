@@ -3,8 +3,8 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use gosh_dl::engine::DownloadEngine;
-use gosh_dl::types::{DownloadEvent, DownloadState, DownloadStatus};
+use gosh_dl::DownloadEngine;
+use gosh_dl::{DownloadEvent, DownloadState, DownloadStatus};
 use ratatui::prelude::*;
 use std::collections::VecDeque;
 use std::io::{self, Stdout};
@@ -78,7 +78,7 @@ pub enum DialogState {
         cursor: usize,
     },
     ConfirmCancel {
-        id: gosh_dl::types::DownloadId,
+        id: gosh_dl::DownloadId,
         delete_files: bool,
     },
     Error {
@@ -398,7 +398,7 @@ impl TuiApp {
         use crate::input::url_parser::{parse_input, ParsedInput};
 
         let input = parse_input(url)?;
-        let options = gosh_dl::types::DownloadOptions::default();
+        let options = gosh_dl::DownloadOptions::default();
 
         let result = match input {
             ParsedInput::Http(url) => self.engine.add_http(&url, options).await,

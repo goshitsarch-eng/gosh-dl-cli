@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use gosh_dl::types::{DownloadEvent, DownloadId, DownloadOptions};
+use gosh_dl::{DownloadEvent, DownloadId, DownloadOptions};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::app::App;
+use crate::util::{sanitize_filename, truncate_str};
 use crate::cli::{AddArgs, OutputFormat};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::output::table::print_add_results;
@@ -139,7 +140,7 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
     }
 
     if let Some(ref name) = args.out {
-        options.filename = Some(name.clone());
+        options.filename = Some(sanitize_filename(name)?);
     }
 
     if let Some(ref ua) = args.user_agent {
@@ -259,7 +260,7 @@ async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {
     for result in results {
         if let Some(id) = DownloadId::from_gid(&result.id) {
             if let Some(pb) = bars.get(&id) {
-                pb.set_message(truncate_string(&result.input, 30));
+                pb.set_message(truncate_str(&result.input, 30));
             }
         }
     }
@@ -282,7 +283,7 @@ async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {
             }
             Ok(DownloadEvent::Failed { id, error, .. }) if ids.contains(&id) => {
                 if let Some(pb) = bars.get(&id) {
-                    pb.abandon_with_message(format!("Failed: {}", truncate_string(&error, 40)));
+                    pb.abandon_with_message(format!("Failed: {}", truncate_str(&error, 40)));
                 }
                 remaining.remove(&id);
             }
@@ -299,10 +300,3 @@ async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {
     Ok(())
 }
 
-fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}

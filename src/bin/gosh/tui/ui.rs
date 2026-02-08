@@ -1,4 +1,4 @@
-use gosh_dl::types::{DownloadState, DownloadStatus};
+use gosh_dl::{DownloadState, DownloadStatus};
 use ratatui::{
     prelude::*,
     text::Line,
@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use super::app::{DialogState, TuiApp, ViewMode};
+use crate::util::truncate_str;
 
 /// Main render function
 pub fn render(frame: &mut Frame, app: &TuiApp) {
@@ -138,7 +139,7 @@ fn create_download_item<'a>(
         .map(format_duration)
         .unwrap_or_default();
 
-    let name = truncate(&dl.metadata.name, 35);
+    let name = truncate_str(&dl.metadata.name, 35);
     let _gid = &dl.id.to_gid()[..8];
 
     let line = format!(
@@ -445,10 +446,3 @@ fn format_state(state: &DownloadState) -> String {
     }
 }
 
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}

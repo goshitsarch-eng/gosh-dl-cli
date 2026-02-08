@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::event::{self, Event as CrosstermEvent, KeyEvent};
 use futures_util::StreamExt;
-use gosh_dl::types::DownloadEvent;
+use gosh_dl::DownloadEvent;
 use std::time::Duration;
 use tokio::sync::broadcast;
 

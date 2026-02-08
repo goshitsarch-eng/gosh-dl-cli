@@ -2,6 +2,7 @@
 name = "gosh-dl-cli"
 version = "0.1.2"
 edition = "2021"
+rust-version = "1.85"
 description = "Command-line interface for the gosh-dl download engine"
 license = "MIT"
 repository = "https://github.com/goshitsarch-eng/gosh-dl-cli"
@@ -15,7 +16,7 @@ path = "src/bin/gosh/main.rs"
 
 [dependencies]
 # Download engine from GitHub
-gosh-dl = "0.1.6"
+gosh-dl = "0.2.2"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "time", "fs", "io-util"] }
@@ -55,7 +56,6 @@ toml = "0.9"
 directories = "6"
 
 # Human-readable formatting
-humansize = "2"
 humantime = "2"
 
 # Error handling for CLI
@@ -64,10 +64,14 @@ color-eyre = "0.6"
 
 # Async utilities for TUI
 futures-util = "0.3"
-tokio-stream = "0.1"
 
 # Logging for CLI
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1

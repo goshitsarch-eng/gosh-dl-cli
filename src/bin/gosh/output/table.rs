@@ -1,7 +1,8 @@
-use gosh_dl::types::{DownloadState, DownloadStatus};
+use gosh_dl::{DownloadState, DownloadStatus};
 use std::time::Duration;
 
 use crate::commands::add::AddResult;
+use crate::util::truncate_str;
 
 pub fn print_download_table(downloads: &[DownloadStatus]) {
     if downloads.is_empty() {
@@ -26,7 +27,7 @@ pub fn print_download_table(downloads: &[DownloadStatus]) {
             .map(format_duration)
             .unwrap_or_else(|| "--".to_string());
         let state = format_state(&dl.state);
-        let name = truncate(&dl.metadata.name, 35);
+        let name = truncate_str(&dl.metadata.name, 35);
 
         println!(
             "{:<16} {:<35} {:>7.1}% {:>10}/s {:>10} {:<12}",
@@ -53,7 +54,7 @@ pub fn print_add_results(results: &[AddResult]) {
             "{:<16} {:<10} {}",
             result.id,
             result.kind,
-            truncate(&result.input, 50)
+            truncate_str(&result.input, 50)
         );
     }
 
@@ -69,7 +70,7 @@ fn format_state(state: &DownloadState) -> String {
         DownloadState::Seeding => "Seeding".to_string(),
         DownloadState::Paused => "Paused".to_string(),
         DownloadState::Completed => "Completed".to_string(),
-        DownloadState::Error { kind, .. } => format!("Error: {}", truncate(kind, 10)),
+        DownloadState::Error { kind, .. } => format!("Error: {}", truncate_str(kind, 10)),
     }
 }
 
@@ -107,10 +108,3 @@ fn format_duration(seconds: u64) -> String {
     }
 }
 
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}

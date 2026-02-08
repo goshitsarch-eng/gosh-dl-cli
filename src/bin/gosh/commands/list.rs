@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gosh_dl::types::DownloadStatus;
+use gosh_dl::DownloadStatus;
 
 use crate::app::App;
 use crate::cli::{ListArgs, OutputFormat, StateFilter};
@@ -60,7 +60,7 @@ pub async fn execute(args: ListArgs, app: &App, output: OutputFormat) -> Result<
 fn filter_paused(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
     downloads
         .iter()
-        .filter(|d| matches!(d.state, gosh_dl::types::DownloadState::Paused))
+        .filter(|d| matches!(d.state, gosh_dl::DownloadState::Paused))
         .cloned()
         .collect()
 }
@@ -68,7 +68,7 @@ fn filter_paused(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
 fn filter_completed(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
     downloads
         .iter()
-        .filter(|d| matches!(d.state, gosh_dl::types::DownloadState::Completed))
+        .filter(|d| matches!(d.state, gosh_dl::DownloadState::Completed))
         .cloned()
         .collect()
 }
@@ -76,7 +76,7 @@ fn filter_completed(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
 fn filter_errors(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
     downloads
         .iter()
-        .filter(|d| matches!(d.state, gosh_dl::types::DownloadState::Error { .. }))
+        .filter(|d| matches!(d.state, gosh_dl::DownloadState::Error { .. }))
         .cloned()
         .collect()
 }

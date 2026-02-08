@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gosh_dl::types::DownloadState;
+use gosh_dl::DownloadState;
 
 use crate::app::App;
 use crate::cli::ResumeArgs;

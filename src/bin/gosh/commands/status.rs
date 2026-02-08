@@ -1,10 +1,10 @@
 use anyhow::Result;
-use gosh_dl::types::{DownloadState, DownloadStatus};
+use gosh_dl::{DownloadState, DownloadStatus};
 use std::time::Duration;
 
 use crate::app::App;
 use crate::cli::{OutputFormat, StatusArgs};
-use crate::util::resolve_download_id;
+use crate::util::{resolve_download_id, truncate_str};
 
 pub async fn execute(args: StatusArgs, app: &App, output: OutputFormat) -> Result<()> {
     let id = resolve_download_id(&args.id, app.engine())?;
@@ -77,7 +77,7 @@ fn print_detailed_status(status: &DownloadStatus, show_peers: bool, show_files: 
         println!("  URL: {}", url);
     }
     if let Some(ref magnet) = status.metadata.magnet_uri {
-        println!("  Magnet: {}", truncate(magnet, 60));
+        println!("  Magnet: {}", truncate_str(magnet, 60));
     }
     if let Some(ref info_hash) = status.metadata.info_hash {
         println!("  Info Hash: {}", info_hash);
@@ -189,10 +189,3 @@ fn format_duration(seconds: u64) -> String {
     humantime::format_duration(duration).to_string()
 }
 
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}

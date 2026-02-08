@@ -4,17 +4,16 @@
 //! with progress bars, without entering the TUI.
 
 use anyhow::{bail, Result};
-use gosh_dl::types::{DownloadEvent, DownloadId, DownloadOptions, DownloadState};
+use gosh_dl::{DownloadEvent, DownloadId, DownloadOptions, DownloadState};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::app::App;
 use crate::config::CliConfig;
 use crate::input::url_parser::{parse_input, ParsedInput};
+use crate::util::{sanitize_filename, truncate_str};
 
 /// Options for direct download mode
 pub struct DirectOptions {
@@ -70,14 +69,6 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
     // Initialize the download engine
     let app = App::new(config).await?;
 
-    // Setup Ctrl+C handler
-    let interrupted = Arc::new(AtomicBool::new(false));
-    let interrupted_clone = interrupted.clone();
-    let ctrl_c_task = tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        interrupted_clone.store(true, Ordering::SeqCst);
-    });
-
     // Setup multi-progress bar
     let multi = MultiProgress::new();
 
@@ -96,7 +87,7 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
     for input in &inputs {
         let pb = multi.add(ProgressBar::new(0));
         pb.set_style(spinner_style.clone());
-        pb.set_message(truncate_name(&input.display(), 40));
+        pb.set_message(truncate_str(&input.display(), 40));
         pb.enable_steady_tick(Duration::from_millis(100));
 
         let options = build_options(&opts, input)?;
@@ -123,7 +114,7 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
                 );
             }
             Err(e) => {
-                pb.abandon_with_message(format!("Failed: {}", truncate_name(&e.to_string(), 35)));
+                pb.abandon_with_message(format!("Failed: {}", truncate_str(&e.to_string(), 35)));
                 failed_to_add += 1;
             }
         }
@@ -145,22 +136,6 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
             break;
         }
 
-        // Check for interrupt
-        if interrupted.load(Ordering::SeqCst) {
-            // Cancel all active downloads
-            for id in &download_ids {
-                let _ = app.engine().cancel(*id, false).await;
-            }
-            for info in downloads.values() {
-                if !info.completed && !info.failed {
-                    info.progress_bar.abandon_with_message("Interrupted");
-                }
-            }
-            ctrl_c_task.abort();
-            app.shutdown().await?;
-            std::process::exit(exit_codes::INTERRUPTED);
-        }
-
         // Process events with timeout
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
@@ -173,7 +148,6 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
                         info.progress_bar.abandon_with_message("Interrupted");
                     }
                 }
-                ctrl_c_task.abort();
                 app.shutdown().await?;
                 std::process::exit(exit_codes::INTERRUPTED);
             }
@@ -194,14 +168,14 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
                         if let Some(info) = downloads.get_mut(&id) {
                             info.completed = true;
                             info.progress_bar
-                                .finish_with_message(format!("{} - Done", truncate_name(&info.name, 33)));
+                                .finish_with_message(format!("{} - Done", truncate_str(&info.name, 33)));
                         }
                     }
                     Ok(DownloadEvent::Failed { id, error, .. }) if download_ids.contains(&id) => {
                         if let Some(info) = downloads.get_mut(&id) {
                             info.failed = true;
                             info.progress_bar
-                                .abandon_with_message(format!("Failed: {}", truncate_name(&error, 32)));
+                                .abandon_with_message(format!("Failed: {}", truncate_str(&error, 32)));
                         }
                     }
                     Ok(DownloadEvent::StateChanged { id, new_state, .. })
@@ -212,12 +186,12 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
                                 DownloadState::Connecting => {
                                     info.progress_bar.set_message(format!(
                                         "{} - Connecting...",
-                                        truncate_name(&info.name, 25)
+                                        truncate_str(&info.name, 25)
                                     ));
                                 }
                                 DownloadState::Downloading => {
                                     info.progress_bar
-                                        .set_message(truncate_name(&info.name, 40));
+                                        .set_message(truncate_str(&info.name, 40));
                                 }
                                 _ => {}
                             }
@@ -229,8 +203,6 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<()> {
             }
         }
     }
-
-    ctrl_c_task.abort();
 
     // Shutdown engine gracefully
     app.shutdown().await?;
@@ -263,7 +235,7 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
     }
 
     if let Some(ref name) = opts.out {
-        options.filename = Some(name.clone());
+        options.filename = Some(sanitize_filename(name)?);
     }
 
     if let Some(ref ua) = opts.user_agent {
@@ -349,10 +321,3 @@ fn parse_speed(s: &str) -> Result<u64> {
     }
 }
 
-fn truncate_name(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    }
-}

@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
-use gosh_dl::types::DownloadId;
-use gosh_dl::DownloadEngine;
+use gosh_dl::{DownloadEngine, DownloadId};
 
 /// Parse a download ID string, supporting both full UUIDs and short GIDs.
 ///
@@ -41,7 +40,7 @@ pub fn resolve_download_id(s: &str, engine: &DownloadEngine) -> Result<DownloadI
 pub fn resolve_download_ids(
     ids: &[String],
     engine: &DownloadEngine,
-    filter: impl Fn(&gosh_dl::types::DownloadStatus) -> bool,
+    filter: impl Fn(&gosh_dl::DownloadStatus) -> bool,
 ) -> Result<Vec<DownloadId>> {
     if ids.len() == 1 && ids[0].to_lowercase() == "all" {
         let all = engine.list();
@@ -53,4 +52,99 @@ pub fn resolve_download_ids(
     }
 
     ids.iter().map(|s| resolve_download_id(s, engine)).collect()
+}
+
+/// Truncate a string to `max_len` bytes, appending "..." if truncated.
+/// Safe for UTF-8: always cuts on a char boundary.
+pub fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s.to_string();
+    }
+    let end = s
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|&i| i <= max_len.saturating_sub(3))
+        .last()
+        .unwrap_or(0);
+    format!("{}...", &s[..end])
+}
+
+/// Validate an output filename, rejecting path traversal attempts.
+pub fn sanitize_filename(name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        bail!("Output filename cannot be empty");
+    }
+    let path = std::path::Path::new(name);
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                bail!("Output filename must not contain '..'")
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                bail!("Output filename must be relative, not absolute")
+            }
+            _ => {}
+        }
+    }
+    Ok(name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_ascii() {
+        assert_eq!(truncate_str("hello world", 11),"hello world");
+        assert_eq!(truncate_str("hello world", 8),"hello...");
+    }
+
+    #[test]
+    fn truncate_emoji() {
+        // "Hello 🌍!" is 11 bytes (🌍 = 4 bytes)
+        assert_eq!(truncate_str("Hello 🌍!", 11),"Hello 🌍!");
+        assert_eq!(truncate_str("Hello 🌍!", 8),"Hello...");
+        // 🌍 is 4 bytes at offset 6; including it + "..." = 13 bytes > 10
+        assert_eq!(truncate_str("Hello 🌍!", 10),"Hello ...");
+        // "Hi 🌍 bye" = 11 bytes; emoji preserved when room allows
+        assert_eq!(truncate_str("Hi 🌍 bye", 11), "Hi 🌍 bye");
+        assert_eq!(truncate_str("Hi 🌍 bye", 10), "Hi 🌍...");
+    }
+
+    #[test]
+    fn truncate_cjk() {
+        // Each CJK char is 3 bytes
+        assert_eq!(truncate_str("你好世界", 12),"你好世界");
+        assert_eq!(truncate_str("你好世界", 9),"你好...");
+    }
+
+    #[test]
+    fn truncate_short() {
+        assert_eq!(truncate_str("abc", 3),"abc");
+        assert_eq!(truncate_str("abc", 2),"...");
+    }
+
+    #[test]
+    fn sanitize_valid() {
+        assert_eq!(sanitize_filename("file.zip").unwrap(), "file.zip");
+        assert_eq!(sanitize_filename("sub/file.zip").unwrap(), "sub/file.zip");
+    }
+
+    #[test]
+    fn sanitize_rejects_traversal() {
+        assert!(sanitize_filename("../etc/passwd").is_err());
+        assert!(sanitize_filename("foo/../../bar").is_err());
+    }
+
+    #[test]
+    fn sanitize_rejects_absolute() {
+        assert!(sanitize_filename("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn sanitize_rejects_empty() {
+        assert!(sanitize_filename("").is_err());
+        assert!(sanitize_filename("   ").is_err());
+    }
 }
