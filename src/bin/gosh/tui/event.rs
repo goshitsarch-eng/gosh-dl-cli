@@ -14,6 +14,8 @@ pub enum AppEvent {
     Engine(DownloadEvent),
     /// Periodic tick for UI refresh
     Tick,
+    /// Full resync after missed events (broadcast lagged)
+    Resync,
     /// Resize event (width, height - reserved for future use)
     Resize(u16, u16),
 }
@@ -58,8 +60,8 @@ impl EventHandler {
                 match result {
                     Ok(event) => Ok(AppEvent::Engine(event)),
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        // Missed some events, continue
-                        Ok(AppEvent::Tick)
+                        // Missed events — trigger full resync
+                        Ok(AppEvent::Resync)
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         // Engine shut down

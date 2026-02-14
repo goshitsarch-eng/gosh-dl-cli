@@ -191,6 +191,11 @@ impl TuiApp {
                 AppEvent::Tick => {
                     self.update_stats();
                 }
+                AppEvent::Resync => {
+                    // Full resync after missed broadcast events
+                    self.refresh_downloads();
+                    self.update_stats();
+                }
                 AppEvent::Resize(_, _) => {
                     // Terminal will redraw on next iteration
                 }
@@ -403,10 +408,10 @@ impl TuiApp {
                     dl.state = DownloadState::Paused;
                 }
             }
-            DownloadEvent::Resumed { id } => {
-                if let Some(dl) = self.downloads.iter_mut().find(|d| d.id == id) {
-                    dl.state = DownloadState::Downloading;
-                }
+            DownloadEvent::Resumed { .. } => {
+                // Don't hardcode state; let StateChanged events update it
+                // (engine sends Connecting first, then Downloading)
+                self.refresh_downloads();
             }
             _ => {}
         }
