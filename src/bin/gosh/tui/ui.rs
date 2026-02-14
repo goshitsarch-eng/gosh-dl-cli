@@ -8,7 +8,7 @@ use ratatui::{
     },
 };
 
-use super::app::{DialogState, TuiApp, ViewMode};
+use super::app::{DialogState, ToastLevel, TuiApp, ViewMode};
 use crate::format::{format_duration, format_size, format_speed, format_state};
 use crate::util::truncate_str;
 
@@ -35,6 +35,11 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
     render_details(frame, chunks[2], app);
     render_status_bar(frame, chunks[3], app);
 
+    // Dim background behind overlays
+    if app.show_help || app.dialog.is_some() {
+        dim_background(frame);
+    }
+
     // Overlays
     if app.show_help {
         render_help_dialog(frame, app);
@@ -42,6 +47,30 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
     if let Some(ref dialog) = app.dialog {
         render_dialog(frame, dialog, app);
     }
+
+    // Toast notifications (always on top)
+    render_toasts(frame, app);
+
+    // Startup fade effect (queued once on first frame)
+    if !app.startup_effects_added {
+        app.startup_effects_added = true;
+        let fade = tachyonfx::fx::fade_from(
+            Color::Rgb(17, 17, 27), // Crust (darkest bg)
+            Color::Rgb(17, 17, 27),
+            (500, tachyonfx::Interpolation::CubicOut),
+        );
+        app.effect_manager.add_effect(fade);
+    }
+
+    // Process tachyonfx effects (must be last)
+    let elapsed = app.last_frame.elapsed();
+    app.last_frame = std::time::Instant::now();
+    let screen_area = frame.area();
+    app.effect_manager.process_effects(
+        elapsed.into(),
+        frame.buffer_mut(),
+        screen_area,
+    );
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &TuiApp) {
@@ -121,6 +150,9 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
 
     let end = (app.scroll_offset + visible_items).min(app.downloads.len());
 
+    // Get current spinner symbol for animated states
+    let spinner = spinner_symbol(&app.throbber_state);
+
     // Render each download item as 2-line block
     for (i, dl) in app.downloads[app.scroll_offset..end].iter().enumerate() {
         let global_idx = i + app.scroll_offset;
@@ -132,7 +164,7 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
         }
 
         let item_area = Rect::new(inner.x, y, inner.width, lines_per_item as u16);
-        render_download_item(frame, item_area, dl, is_selected, &theme);
+        render_download_item(frame, item_area, dl, is_selected, &theme, spinner);
     }
 
     // Scrollbar
@@ -145,19 +177,29 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     }
 }
 
+/// Extract current spinner symbol from throbber state
+fn spinner_symbol(state: &throbber_widgets_tui::ThrobberState) -> &'static str {
+    let set = &throbber_widgets_tui::BRAILLE_SIX;
+    let len = set.symbols.len() as i8;
+    let idx = ((state.index() % len) + len) % len;
+    set.symbols[idx as usize]
+}
+
 fn render_download_item(
     frame: &mut Frame,
     area: Rect,
     dl: &DownloadStatus,
     is_selected: bool,
     theme: &super::theme::Theme,
+    spinner: &str,
 ) {
+    // Use animated spinner for active states, static icons for rest
     let state_icon = match &dl.state {
-        DownloadState::Downloading => "↓",
+        DownloadState::Downloading => spinner,
+        DownloadState::Connecting => spinner,
         DownloadState::Seeding => "↑",
         DownloadState::Paused => "⏸",
         DownloadState::Queued => "◷",
-        DownloadState::Connecting => "⟳",
         DownloadState::Completed => "✓",
         DownloadState::Error { .. } => "✗",
     };
@@ -262,6 +304,9 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
         let state = format_state(&dl.state);
         let state_color = theme.state_color(&dl.state);
 
+        // Connection quality indicator
+        let quality = connection_quality(dl.progress.connections);
+
         let meta_lines = vec![
             Line::from(vec![
                 Span::styled("  Name: ", Style::default().fg(theme.overlay1)),
@@ -287,11 +332,8 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
                     Style::default().fg(theme.peach),
                 ),
                 Span::styled("  │  ", Style::default().fg(theme.surface2)),
-                Span::styled(format!("Peers: {}", dl.progress.connections), Style::default().fg(theme.subtext0)),
-                Span::styled("  │  ", Style::default().fg(theme.surface2)),
                 Span::styled(
-                    format!(
-                        "ETA: {}",
+                    format!("ETA: {}",
                         dl.progress
                             .eta_seconds
                             .map(format_duration)
@@ -301,9 +343,14 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
                 ),
             ]),
             Line::from(vec![
-                Span::styled("  Path: ", Style::default().fg(theme.overlay1)),
+                Span::styled(" Peers: ", Style::default().fg(theme.overlay1)),
+                Span::styled(format!("{}", dl.progress.connections), Style::default().fg(theme.text)),
+                Span::styled(" ", Style::default()),
+                Span::styled(quality.0, Style::default().fg(quality.1)),
+                Span::styled("  │  ", Style::default().fg(theme.surface2)),
+                Span::styled("Path: ", Style::default().fg(theme.overlay1)),
                 Span::styled(
-                    truncate_str(&dl.metadata.save_dir.display().to_string(), 60),
+                    truncate_str(&dl.metadata.save_dir.display().to_string(), 40),
                     Style::default().fg(theme.overlay0),
                 ),
             ]),
@@ -358,6 +405,23 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
             .style(theme.muted_style())
             .alignment(Alignment::Center);
         frame.render_widget(msg, inner);
+    }
+}
+
+/// Connection quality bar based on peer count
+fn connection_quality(connections: u32) -> (&'static str, Color) {
+    if connections > 50 {
+        ("▰▰▰▰▰", Color::Rgb(166, 227, 161)) // success green
+    } else if connections > 20 {
+        ("▰▰▰▰▱", Color::Rgb(137, 180, 250)) // accent blue
+    } else if connections > 5 {
+        ("▰▰▰▱▱", Color::Rgb(148, 226, 213)) // teal
+    } else if connections > 1 {
+        ("▰▰▱▱▱", Color::Rgb(249, 226, 175)) // warning yellow
+    } else if connections > 0 {
+        ("▰▱▱▱▱", Color::Rgb(250, 179, 135)) // peach
+    } else {
+        ("▱▱▱▱▱", Color::Rgb(108, 112, 134)) // muted
     }
 }
 
@@ -586,6 +650,71 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
 
             let paragraph = Paragraph::new(content).block(block);
             frame.render_widget(paragraph, area);
+        }
+    }
+}
+
+/// Render toast notifications in top-right corner
+fn render_toasts(frame: &mut Frame, app: &TuiApp) {
+    let theme = app.theme();
+    let area = frame.area();
+
+    if app.toasts.is_empty() || area.width < 30 {
+        return;
+    }
+
+    let toast_width = 44_u16.min(area.width - 2);
+
+    for (i, toast) in app.toasts.iter().rev().enumerate() {
+        let y = area.y + 1 + (i as u16 * 3);
+        if y + 2 >= area.height {
+            break;
+        }
+
+        let toast_area = Rect::new(area.width - toast_width - 1, y, toast_width, 3);
+
+        // Fade based on age (dim after 3 seconds)
+        let age = toast.created.elapsed().as_secs_f32();
+        let fading = age > 3.0;
+
+        let (icon, border_color) = match toast.level {
+            ToastLevel::Success => ("✓ ", theme.success),
+            ToastLevel::Error => ("✗ ", theme.error),
+        };
+
+        let fg = if fading { theme.overlay0 } else { theme.text };
+        let border_fg = if fading { theme.surface1 } else { border_color };
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_fg))
+            .style(Style::default().bg(theme.bg_dim));
+
+        let content = Line::from(vec![
+            Span::styled(icon, Style::default().fg(border_color)),
+            Span::styled(
+                truncate_str(&toast.message, (toast_width - 6) as usize),
+                Style::default().fg(fg),
+            ),
+        ]);
+
+        frame.render_widget(Clear, toast_area);
+        frame.render_widget(
+            Paragraph::new(content).block(block),
+            toast_area,
+        );
+    }
+}
+
+/// Apply DIM modifier to all cells (darkens background behind overlays)
+fn dim_background(frame: &mut Frame) {
+    let area = frame.area();
+    let buf = frame.buffer_mut();
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.set_style(cell.style().add_modifier(Modifier::DIM));
         }
     }
 }

@@ -10,8 +10,10 @@ use std::collections::VecDeque;
 use std::io::{self, Stdout};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use throbber_widgets_tui::ThrobberState;
 
 use crate::config::CliConfig;
+use crate::util::truncate_str;
 
 use super::event::{self, AppEvent, EventHandler};
 use super::theme::Theme;
@@ -52,15 +54,26 @@ pub struct TuiApp {
     /// Active dialog (add URL, confirm cancel, etc.)
     pub dialog: Option<DialogState>,
 
-    /// Last update timestamp (reserved for future use)
-    #[allow(dead_code)]
-    last_update: Instant,
+    /// Last frame timestamp for effect timing
+    pub last_frame: Instant,
 
     /// Global download speed
     pub download_speed: u64,
 
     /// Global upload speed
     pub upload_speed: u64,
+
+    /// Throbber state for animated spinners
+    pub throbber_state: ThrobberState,
+
+    /// Active toast notifications
+    pub toasts: Vec<Toast>,
+
+    /// Effect manager for tachyonfx animations
+    pub effect_manager: tachyonfx::EffectManager<()>,
+
+    /// Whether startup effects have been queued
+    pub startup_effects_added: bool,
 
     /// Should quit
     should_quit: bool,
@@ -86,6 +99,19 @@ pub enum DialogState {
     Error {
         message: String,
     },
+}
+
+/// Toast notification
+pub struct Toast {
+    pub message: String,
+    pub level: ToastLevel,
+    pub created: Instant,
+}
+
+#[derive(Clone, Copy)]
+pub enum ToastLevel {
+    Success,
+    Error,
 }
 
 impl TuiApp {
@@ -115,9 +141,13 @@ impl TuiApp {
             speed_history: VecDeque::with_capacity(60),
             show_help: false,
             dialog: None,
-            last_update: Instant::now(),
+            last_frame: Instant::now(),
             download_speed: 0,
             upload_speed: 0,
+            throbber_state: ThrobberState::default(),
+            toasts: Vec::new(),
+            effect_manager: tachyonfx::EffectManager::default(),
+            startup_effects_added: false,
             should_quit: false,
         })
     }
@@ -336,11 +366,27 @@ impl TuiApp {
     /// Handle engine events
     fn handle_engine_event(&mut self, event: DownloadEvent) {
         match event {
-            DownloadEvent::Added { .. }
-            | DownloadEvent::Removed { .. }
-            | DownloadEvent::Completed { .. }
-            | DownloadEvent::Failed { .. } => {
+            DownloadEvent::Added { .. } | DownloadEvent::Removed { .. } => {
                 self.refresh_downloads();
+            }
+            DownloadEvent::Completed { id } => {
+                let name = self.downloads.iter()
+                    .find(|d| d.id == id)
+                    .map(|d| d.metadata.name.clone());
+                self.refresh_downloads();
+                if let Some(name) = name {
+                    self.push_toast(
+                        truncate_str(&name, 40),
+                        ToastLevel::Success,
+                    );
+                }
+            }
+            DownloadEvent::Failed { error, .. } => {
+                self.refresh_downloads();
+                self.push_toast(
+                    truncate_str(&error, 40),
+                    ToastLevel::Error,
+                );
             }
             DownloadEvent::Progress { id, progress } => {
                 if let Some(dl) = self.downloads.iter_mut().find(|d| d.id == id) {
@@ -377,6 +423,25 @@ impl TuiApp {
             .push_back((stats.download_speed, stats.upload_speed));
         while self.speed_history.len() > 60 {
             self.speed_history.pop_front();
+        }
+
+        // Advance throbber animation
+        self.throbber_state.calc_next();
+
+        // Expire old toasts (4 second lifetime)
+        self.toasts.retain(|t| t.created.elapsed() < Duration::from_secs(4));
+    }
+
+    /// Push a toast notification
+    fn push_toast(&mut self, message: String, level: ToastLevel) {
+        self.toasts.push(Toast {
+            message,
+            level,
+            created: Instant::now(),
+        });
+        // Keep at most 5 toasts
+        while self.toasts.len() > 5 {
+            self.toasts.remove(0);
         }
     }
 
