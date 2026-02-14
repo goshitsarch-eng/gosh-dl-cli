@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-02-14
+
+### Added
+
+- Catppuccin color theme system with Mocha (dark), Macchiato (alt dark), and Latte (light) palettes
+- Animated braille spinners for downloading/connecting states (throbber-widgets-tui)
+- Toast notifications for download completion and failure events (auto-dismiss after 4s)
+- Startup fade-in animation via tachyonfx
+- Dimmed background behind modal dialogs and help overlay
+- Connection quality indicator bars in details panel (peer-count based)
+- Sparkline speed graphs in details panel (download and upload history)
+- Scrollbar widget on download list
+- Tabs widget for view mode switching (All / Active / Completed)
+- Multi-line download items with LineGauge progress bars colored by completion percentage
+- Rounded borders on all panels and dialogs
+- Unicode state icons (✓ completed, ✗ error, ⏸ paused, ◷ queued, ↑ seeding)
+- Styled key badges in status bar
+- Config value validation (max_concurrent_downloads, max_connections, refresh_rate_ms, seed_ratio, schedule hours)
+- Warning on unrecognized schedule day names in config
+- Header validation for `--header` flag (rejects missing colon)
+- Resync event on broadcast lag to catch missed completion events
+
+### Changed
+
+- Upgrade gosh-dl engine from 0.2.2 to 0.2.5
+- Theme system rewritten from 13-field role-based to 25-field palette-based design
+- Cursor tracking in AddUrl dialog uses character indices (UTF-8 safe)
+- Page up/down uses actual visible height instead of hardcoded 10
+- Help dialog closes on any key press
+- Resumed downloads use engine StateChanged events instead of hardcoding Downloading state
+- Broadcast Lagged errors trigger full resync instead of being treated as channel-closed
+- `format_duration(0)` returns "0:00" instead of "--"
+- URL auto-detection improved: rejects common file extensions, requires www. prefix for bare domains
+- Deduplicated `parse_speed` and `parse_checksum` into `util.rs`
+- `config set` respects `--config` path for both load and save
+
+### Fixed
+
+- TUI panic hook installed before terminal setup (prevents bricked terminal on crash)
+- UTF-8 cursor panic in AddUrl dialog on multi-byte input
+- Broadcast `RecvError::Lagged` no longer breaks direct mode event loop
+- `truncate_str` with `max_len < 3` no longer returns string longer than max_len
+- `unreachable!()` replaced with `Ok(())` in command dispatch fallthrough
+
+### Removed
+
+- Dead widget modules: `download_list.rs`, `help_dialog.rs`, `progress_bar.rs`, `speed_graph.rs`
+- Duplicate `parse_checksum` in `direct.rs` and `commands/add.rs`
+- Duplicate `parse_speed` in `commands/add.rs`
+
 ## [0.2.2] - 2026-02-08
 
 ### Added
@@ -85,7 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.2...v0.2.5
 [0.2.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.2...v0.2.2
 [0.1.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.0...v0.1.1
