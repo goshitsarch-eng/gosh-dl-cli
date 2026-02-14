@@ -1,14 +1,20 @@
+use std::path::Path;
+
 use anyhow::Result;
 
 use crate::cli::{ConfigAction, ConfigArgs};
 use crate::config::CliConfig;
 
-pub async fn execute(args: ConfigArgs, config: &CliConfig) -> Result<()> {
+pub async fn execute(
+    args: ConfigArgs,
+    config: &CliConfig,
+    config_path: Option<&Path>,
+) -> Result<()> {
     match args.action {
         ConfigAction::Show => show_config(config),
         ConfigAction::Path => show_path(),
         ConfigAction::Get { key } => get_config_value(config, &key),
-        ConfigAction::Set { key, value } => set_config_value(&key, &value),
+        ConfigAction::Set { key, value } => set_config_value(&key, &value, config_path),
     }
 }
 
@@ -71,9 +77,9 @@ fn get_config_value(config: &CliConfig, key: &str) -> Result<()> {
     Ok(())
 }
 
-fn set_config_value(key: &str, value: &str) -> Result<()> {
-    // Load current config or create default
-    let mut config = CliConfig::load(None)?;
+fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Result<()> {
+    // Load current config from the same path the CLI used
+    let mut config = CliConfig::load(config_path)?;
 
     let parts: Vec<&str> = key.split('.').collect();
 
@@ -140,8 +146,11 @@ fn set_config_value(key: &str, value: &str) -> Result<()> {
         _ => anyhow::bail!("Unknown configuration key: {}", key),
     }
 
-    // Save the updated config
-    config.save(None)?;
+    // Validate before saving
+    config.validate()?;
+
+    // Save the updated config to the same path
+    config.save(config_path)?;
     println!("Configuration saved: {} = {}", key, value);
 
     Ok(())

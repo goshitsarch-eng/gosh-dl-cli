@@ -56,6 +56,9 @@ async fn run() -> Result<i32> {
     // Load config file
     let mut config = config::CliConfig::load(cli.config.as_deref())?;
 
+    // Validate configuration values
+    config.validate()?;
+
     // Apply environment variable overrides first
     config.apply_env_overrides();
 
@@ -86,7 +89,7 @@ async fn run() -> Result<i32> {
     // Route to appropriate handler
     if let Some(cmd) = cli.command {
         // Subcommand provided - run it
-        run_command(cmd, config, cli.output).await?;
+        run_command(cmd, config, cli.output, cli.config.clone()).await?;
         Ok(0)
     } else if !cli.urls.is_empty() {
         // URLs provided without subcommand - direct download mode
@@ -147,6 +150,7 @@ async fn run_command(
     cmd: Commands,
     config: config::CliConfig,
     output_format: cli::OutputFormat,
+    config_path: Option<std::path::PathBuf>,
 ) -> Result<()> {
     // Initialize the application (engine)
     let app = app::App::new(config).await?;
@@ -161,8 +165,10 @@ async fn run_command(
         Commands::Priority(args) => commands::priority::execute(args, &app).await,
         Commands::Stats => commands::stats::execute(&app, output_format).await,
         Commands::Info(args) => commands::info::execute(args, output_format).await,
-        Commands::Config(args) => commands::config::execute(args, &app.config).await,
-        Commands::Completions(_) => unreachable!("handled before engine init"),
+        Commands::Config(args) => {
+            commands::config::execute(args, &app.config, config_path.as_deref()).await
+        }
+        Commands::Completions(_) => Ok(()), // handled before engine init
     }
 }
 

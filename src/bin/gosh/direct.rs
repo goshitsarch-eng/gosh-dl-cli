@@ -14,7 +14,7 @@ use crate::app::App;
 use crate::config::CliConfig;
 use crate::format::{print_error, print_warning};
 use crate::input::url_parser::{parse_input, ParsedInput};
-use crate::util::{parse_speed, sanitize_filename, truncate_str};
+use crate::util::{parse_checksum, parse_speed, sanitize_filename, truncate_str};
 
 /// Options for direct download mode
 pub struct DirectOptions {
@@ -198,6 +198,10 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
                             }
                         }
                     }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::debug!("Missed {} engine events", n);
+                        continue;
+                    }
                     Err(_) => break, // Channel closed
                     _ => continue,
                 }
@@ -253,6 +257,8 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
             options
                 .headers
                 .push((name.trim().to_string(), value.trim().to_string()));
+        } else {
+            bail!("Invalid header format '{}'. Expected 'Name: Value'", header);
         }
     }
 
@@ -298,12 +304,3 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
     Ok(options)
 }
 
-fn parse_checksum(s: &str) -> Result<gosh_dl::http::ExpectedChecksum> {
-    if let Some(hash) = s.strip_prefix("md5:") {
-        Ok(gosh_dl::http::ExpectedChecksum::md5(hash.to_string()))
-    } else if let Some(hash) = s.strip_prefix("sha256:") {
-        Ok(gosh_dl::http::ExpectedChecksum::sha256(hash.to_string()))
-    } else {
-        bail!("Invalid checksum format. Use 'md5:HASH' or 'sha256:HASH'")
-    }
-}

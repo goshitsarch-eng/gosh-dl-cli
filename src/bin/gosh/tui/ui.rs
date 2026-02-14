@@ -12,8 +12,6 @@ use crate::util::truncate_str;
 
 /// Main render function
 pub fn render(frame: &mut Frame, app: &mut TuiApp) {
-    let _theme = app.theme();
-
     // Main layout
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -147,7 +145,6 @@ fn create_download_item<'a>(
         .unwrap_or_default();
 
     let name = truncate_str(&dl.metadata.name, 35);
-    let _gid = &dl.id.to_gid()[..8];
 
     let line = format!(
         "{} {} {:<35} {} {:>6.1}% {:>10} {:>8}",

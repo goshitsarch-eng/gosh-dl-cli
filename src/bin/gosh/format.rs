@@ -69,12 +69,8 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
-/// Format seconds as "M:SS" or "H:MM:SS". Returns "--" for 0.
+/// Format seconds as "M:SS" or "H:MM:SS".
 pub fn format_duration(seconds: u64) -> String {
-    if seconds == 0 {
-        return "--".to_string();
-    }
-
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
     let secs = seconds % 60;
@@ -157,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_format_duration_zero() {
-        assert_eq!(format_duration(0), "--");
+        assert_eq!(format_duration(0), "0:00");
     }
 
     #[test]

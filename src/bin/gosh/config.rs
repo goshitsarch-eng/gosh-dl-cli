@@ -201,6 +201,31 @@ impl CliConfig {
         }
     }
 
+    /// Validate configuration values, returning an error for invalid settings
+    pub fn validate(&self) -> Result<()> {
+        if self.engine.max_concurrent_downloads == 0 {
+            anyhow::bail!("engine.max_concurrent_downloads must be at least 1");
+        }
+        if self.engine.max_connections_per_download == 0 {
+            anyhow::bail!("engine.max_connections_per_download must be at least 1");
+        }
+        if self.tui.refresh_rate_ms == 0 {
+            anyhow::bail!("tui.refresh_rate_ms must be at least 1");
+        }
+        if self.engine.seed_ratio < 0.0 {
+            anyhow::bail!("engine.seed_ratio must not be negative");
+        }
+        for (i, rule) in self.schedule.rules.iter().enumerate() {
+            if rule.start_hour > 23 {
+                anyhow::bail!("schedule.rules[{}].start_hour must be 0-23", i);
+            }
+            if rule.end_hour > 23 {
+                anyhow::bail!("schedule.rules[{}].end_hour must be 0-23", i);
+            }
+        }
+        Ok(())
+    }
+
     /// Convert to engine configuration
     pub fn to_engine_config(&self) -> gosh_dl::config::EngineConfig {
         gosh_dl::config::EngineConfig {
@@ -275,15 +300,21 @@ fn parse_schedule_days(s: &str) -> Vec<Weekday> {
         "weekends" => vec![Weekday::Sat, Weekday::Sun],
         other => other
             .split(',')
-            .filter_map(|d| match d.trim().to_lowercase().as_str() {
-                "mon" => Some(Weekday::Mon),
-                "tue" => Some(Weekday::Tue),
-                "wed" => Some(Weekday::Wed),
-                "thu" => Some(Weekday::Thu),
-                "fri" => Some(Weekday::Fri),
-                "sat" => Some(Weekday::Sat),
-                "sun" => Some(Weekday::Sun),
-                _ => None,
+            .filter_map(|d| {
+                let day = d.trim().to_lowercase();
+                match day.as_str() {
+                    "mon" => Some(Weekday::Mon),
+                    "tue" => Some(Weekday::Tue),
+                    "wed" => Some(Weekday::Wed),
+                    "thu" => Some(Weekday::Thu),
+                    "fri" => Some(Weekday::Fri),
+                    "sat" => Some(Weekday::Sat),
+                    "sun" => Some(Weekday::Sun),
+                    _ => {
+                        tracing::warn!("Unrecognized schedule day '{}', ignoring", d.trim());
+                        None
+                    }
+                }
             })
             .collect(),
     }

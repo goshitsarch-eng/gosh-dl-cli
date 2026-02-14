@@ -11,7 +11,7 @@ use crate::app::App;
 use crate::cli::{AddArgs, OutputFormat};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::output::table::print_add_results;
-use crate::util::{sanitize_filename, truncate_str};
+use crate::util::{parse_checksum, parse_speed, sanitize_filename, truncate_str};
 
 #[derive(Serialize)]
 pub struct AddResult {
@@ -157,6 +157,8 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
             options
                 .headers
                 .push((name.trim().to_string(), value.trim().to_string()));
+        } else {
+            bail!("Invalid header format '{}'. Expected 'Name: Value'", header);
         }
     }
 
@@ -200,30 +202,6 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
     }
 
     Ok(options)
-}
-
-fn parse_checksum(s: &str) -> Result<gosh_dl::http::ExpectedChecksum> {
-    if let Some(hash) = s.strip_prefix("md5:") {
-        Ok(gosh_dl::http::ExpectedChecksum::md5(hash.to_string()))
-    } else if let Some(hash) = s.strip_prefix("sha256:") {
-        Ok(gosh_dl::http::ExpectedChecksum::sha256(hash.to_string()))
-    } else {
-        bail!("Invalid checksum format. Use 'md5:HASH' or 'sha256:HASH'")
-    }
-}
-
-fn parse_speed(s: &str) -> Result<u64> {
-    let s = s.trim().to_uppercase();
-
-    if let Some(num) = s.strip_suffix('K') {
-        Ok(num.parse::<u64>()? * 1024)
-    } else if let Some(num) = s.strip_suffix('M') {
-        Ok(num.parse::<u64>()? * 1024 * 1024)
-    } else if let Some(num) = s.strip_suffix('G') {
-        Ok(num.parse::<u64>()? * 1024 * 1024 * 1024)
-    } else {
-        Ok(s.parse()?)
-    }
 }
 
 async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {

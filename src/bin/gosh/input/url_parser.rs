@@ -91,13 +91,33 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
     }
 
     // If it looks like a URL without protocol, assume HTTPS
-    if input.contains('.') && !input.contains('/') || input.starts_with("www.") {
+    // Require www. prefix or a dot followed by a known TLD-like pattern (not just "file.txt")
+    if input.starts_with("www.") {
         return Ok(ParsedInput::Http(format!("https://{}", input)));
     }
 
-    // Try adding https:// prefix if it contains slashes (likely a URL)
+    // Only treat as URL if it contains a slash (path component) with a dot (domain),
+    // or has a dot with no file extension pattern (e.g., "example.com" but not "file.txt")
     if input.contains('/') && input.contains('.') {
         return Ok(ParsedInput::Http(format!("https://{}", input)));
+    }
+
+    // Bare domain-like input: require at least two dot-separated parts where the
+    // last part is longer than typical file extensions (>= 2 chars and not a common extension)
+    if input.contains('.') && !input.contains('/') {
+        let parts: Vec<&str> = input.split('.').collect();
+        if parts.len() >= 2 {
+            let last = parts.last().unwrap();
+            // Common file extensions to reject as bare URLs
+            let file_extensions = [
+                "txt", "log", "csv", "json", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf",
+                "md", "rst", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "pdf", "doc", "docx",
+                "rs", "py", "js", "ts", "go", "c", "h", "cpp", "java", "rb", "sh", "bat",
+            ];
+            if !file_extensions.contains(&last.to_lowercase().as_str()) {
+                return Ok(ParsedInput::Http(format!("https://{}", input)));
+            }
+        }
     }
 
     bail!(

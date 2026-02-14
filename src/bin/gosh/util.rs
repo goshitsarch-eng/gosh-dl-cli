@@ -60,10 +60,13 @@ pub fn truncate_str(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         return s.to_string();
     }
+    if max_len < 3 {
+        return s.chars().take(max_len).collect();
+    }
     let end = s
         .char_indices()
         .map(|(i, _)| i)
-        .take_while(|&i| i <= max_len.saturating_sub(3))
+        .take_while(|&i| i <= max_len - 3)
         .last()
         .unwrap_or(0);
     format!("{}...", &s[..end])
@@ -88,6 +91,17 @@ pub fn sanitize_filename(name: &str) -> Result<String> {
         }
     }
     Ok(name.to_string())
+}
+
+/// Parse a checksum string in the format "md5:HASH" or "sha256:HASH".
+pub fn parse_checksum(s: &str) -> Result<gosh_dl::http::ExpectedChecksum> {
+    if let Some(hash) = s.strip_prefix("md5:") {
+        Ok(gosh_dl::http::ExpectedChecksum::md5(hash.to_string()))
+    } else if let Some(hash) = s.strip_prefix("sha256:") {
+        Ok(gosh_dl::http::ExpectedChecksum::sha256(hash.to_string()))
+    } else {
+        bail!("Invalid checksum format. Use 'md5:HASH' or 'sha256:HASH'")
+    }
 }
 
 /// Parse a speed string with optional K/M/G suffix into bytes per second.
@@ -137,7 +151,9 @@ mod tests {
     #[test]
     fn truncate_short() {
         assert_eq!(truncate_str("abc", 3), "abc");
-        assert_eq!(truncate_str("abc", 2), "...");
+        assert_eq!(truncate_str("abc", 2), "ab");
+        assert_eq!(truncate_str("abc", 1), "a");
+        assert_eq!(truncate_str("abc", 0), "");
     }
 
     #[test]

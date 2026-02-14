@@ -128,6 +128,14 @@ impl TuiApp {
 
     /// Run the TUI event loop
     pub async fn run(&mut self) -> Result<()> {
+        // Install panic hook that restores the terminal before printing the panic
+        let original_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let _ = disable_raw_mode();
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            original_hook(panic_info);
+        }));
+
         // Setup terminal
         let mut terminal = setup_terminal()?;
 
@@ -166,6 +174,9 @@ impl TuiApp {
         // Restore terminal
         restore_terminal(terminal)?;
 
+        // Restore original panic hook now that the terminal is back to normal
+        let _ = std::panic::take_hook();
+
         // Shutdown engine
         self.engine.shutdown().await?;
 
@@ -187,15 +198,26 @@ impl TuiApp {
                             self.add_download(&url).await?;
                         }
                     } else if let crossterm::event::Event::Key(key) = event {
+                        // cursor is a *character* index, not a byte offset
                         match key.code {
                             crossterm::event::KeyCode::Char(c) => {
-                                input.insert(*cursor, c);
+                                let byte_pos = input
+                                    .char_indices()
+                                    .nth(*cursor)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(input.len());
+                                input.insert(byte_pos, c);
                                 *cursor += 1;
                             }
                             crossterm::event::KeyCode::Backspace => {
                                 if *cursor > 0 {
                                     *cursor -= 1;
-                                    input.remove(*cursor);
+                                    let byte_pos = input
+                                        .char_indices()
+                                        .nth(*cursor)
+                                        .map(|(i, _)| i)
+                                        .unwrap_or(input.len());
+                                    input.remove(byte_pos);
                                 }
                             }
                             crossterm::event::KeyCode::Left => {
@@ -204,7 +226,7 @@ impl TuiApp {
                                 }
                             }
                             crossterm::event::KeyCode::Right => {
-                                if *cursor < input.len() {
+                                if *cursor < input.chars().count() {
                                     *cursor += 1;
                                 }
                             }
@@ -240,9 +262,9 @@ impl TuiApp {
             }
         }
 
-        // Handle help overlay
+        // Handle help overlay — any key closes it
         if self.show_help {
-            if event::is_escape(event) || event::is_key(event, '?') || event::is_key(event, 'q') {
+            if matches!(event, crossterm::event::Event::Key(_)) {
                 self.show_help = false;
             }
             return Ok(false);
@@ -264,11 +286,11 @@ impl TuiApp {
         } else if event::is_down(event) || event::is_key(event, 'j') {
             self.select_next();
         } else if event::is_page_up(event) {
-            for _ in 0..10 {
+            for _ in 0..self.last_visible_height {
                 self.select_prev();
             }
         } else if event::is_page_down(event) {
-            for _ in 0..10 {
+            for _ in 0..self.last_visible_height {
                 self.select_next();
             }
         }
