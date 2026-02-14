@@ -2,44 +2,43 @@ use gosh_dl::{DownloadState, DownloadStatus};
 use ratatui::{
     prelude::*,
     text::Line,
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{
+        Block, BorderType, Borders, Clear, LineGauge, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, Sparkline, Tabs, Wrap,
+    },
 };
 
 use super::app::{DialogState, TuiApp, ViewMode};
-use super::widgets::speed_graph;
 use crate::format::{format_duration, format_size, format_speed, format_state};
 use crate::util::truncate_str;
 
 /// Main render function
 pub fn render(frame: &mut Frame, app: &mut TuiApp) {
+    let theme = app.theme();
+
+    // Fill background
+    frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), frame.area());
+
     // Main layout
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Header
-            Constraint::Fill(1),   // Download list - takes remaining space
-            Constraint::Length(8), // Details panel (including speed graph)
+            Constraint::Length(3), // Header with tabs
+            Constraint::Fill(1),  // Download list
+            Constraint::Length(9), // Details panel
             Constraint::Length(1), // Status bar
         ])
         .split(frame.area());
 
-    // Render header
     render_header(frame, chunks[0], app);
-
-    // Render download list (with scrolling)
     render_download_list(frame, chunks[1], app);
-
-    // Render details panel
     render_details(frame, chunks[2], app);
-
-    // Render status bar
     render_status_bar(frame, chunks[3], app);
 
-    // Render overlays
+    // Overlays
     if app.show_help {
         render_help_dialog(frame, app);
     }
-
     if let Some(ref dialog) = app.dialog {
         render_dialog(frame, dialog, app);
     }
@@ -48,31 +47,42 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
 fn render_header(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
 
-    let mode_str = match app.mode {
-        ViewMode::All => "[1]All",
-        ViewMode::Active => "[2]Active",
-        ViewMode::Completed => "[3]Completed",
+    let speed_str = format!(
+        " ↓ {}  ↑ {}  │  {} downloads ",
+        format_speed(app.download_speed),
+        format_speed(app.upload_speed),
+        app.downloads.len()
+    );
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border_style())
+        .title(
+            Line::from(format!(" gosh v{} ", env!("CARGO_PKG_VERSION")))
+                .style(theme.title_style()),
+        )
+        .title_bottom(Line::from(speed_str).right_aligned().style(Style::default().fg(theme.teal)));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Tabs widget for view modes
+    let tab_titles = vec!["All", "Active", "Completed"];
+    let selected_tab = match app.mode {
+        ViewMode::All => 0,
+        ViewMode::Active => 1,
+        ViewMode::Completed => 2,
     };
 
-    let speed_str = format!(
-        "↓ {}  ↑ {}",
-        format_speed(app.download_speed),
-        format_speed(app.upload_speed)
-    );
+    let tabs = Tabs::new(tab_titles)
+        .select(selected_tab)
+        .highlight_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .style(Style::default().fg(theme.overlay1))
+        .divider("│")
+        .padding(" ", " ");
 
-    let count_str = format!("{} downloads", app.downloads.len());
-
-    let header_text = format!(
-        " gosh v{}  │  {}  │  {}  │  {}",
-        env!("CARGO_PKG_VERSION"),
-        mode_str,
-        speed_str,
-        count_str
-    );
-
-    let header = Paragraph::new(header_text).style(theme.header_style());
-
-    frame.render_widget(header, area);
+    frame.render_widget(tabs, inner);
 }
 
 fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
@@ -80,6 +90,7 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
 
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(theme.border_style())
         .title(Line::from(" Downloads ").style(theme.title_style()));
 
@@ -87,94 +98,139 @@ fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     frame.render_widget(block, area);
 
     if app.downloads.is_empty() {
-        let empty_msg = Paragraph::new("No downloads. Press 'a' to add one.")
-            .style(theme.muted_style())
-            .alignment(Alignment::Center);
-        frame.render_widget(empty_msg, inner);
+        let empty = vec![
+            Line::from(""),
+            Line::from(Span::styled("No downloads yet", Style::default().fg(theme.overlay0))),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Press ", Style::default().fg(theme.overlay0)),
+                Span::styled(" a ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("to add a download", Style::default().fg(theme.overlay0)),
+            ]),
+        ];
+        let paragraph = Paragraph::new(empty).alignment(Alignment::Center);
+        frame.render_widget(paragraph, inner);
         return;
     }
 
-    let visible_height = inner.height as usize;
-    app.last_visible_height = visible_height;
-    app.adjust_scroll(visible_height);
+    // Each download takes 2 lines
+    let lines_per_item = 2;
+    let visible_items = (inner.height as usize) / lines_per_item;
+    app.last_visible_height = visible_items;
+    app.adjust_scroll(visible_items);
 
-    let end = (app.scroll_offset + visible_height).min(app.downloads.len());
+    let end = (app.scroll_offset + visible_items).min(app.downloads.len());
 
-    // Create list items (only visible range)
-    let items: Vec<ListItem> = app.downloads[app.scroll_offset..end]
-        .iter()
-        .enumerate()
-        .map(|(i, dl)| {
-            let is_selected = i + app.scroll_offset == app.selected;
-            create_download_item(dl, is_selected, &theme)
-        })
-        .collect();
+    // Render each download item as 2-line block
+    for (i, dl) in app.downloads[app.scroll_offset..end].iter().enumerate() {
+        let global_idx = i + app.scroll_offset;
+        let is_selected = global_idx == app.selected;
+        let y = inner.y + (i * lines_per_item) as u16;
 
-    let list = List::new(items);
-    frame.render_widget(list, inner);
+        if y + 1 >= inner.y + inner.height {
+            break;
+        }
+
+        let item_area = Rect::new(inner.x, y, inner.width, lines_per_item as u16);
+        render_download_item(frame, item_area, dl, is_selected, &theme);
+    }
+
+    // Scrollbar
+    if app.downloads.len() > visible_items {
+        let mut scrollbar_state = ScrollbarState::new(app.downloads.len())
+            .position(app.selected);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .style(Style::default().fg(theme.surface2));
+        frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
 }
 
-fn create_download_item<'a>(
+fn render_download_item(
+    frame: &mut Frame,
+    area: Rect,
     dl: &DownloadStatus,
     is_selected: bool,
     theme: &super::theme::Theme,
-) -> ListItem<'a> {
+) {
     let state_icon = match &dl.state {
-        DownloadState::Downloading => "▼",
-        DownloadState::Seeding => "▲",
+        DownloadState::Downloading => "↓",
+        DownloadState::Seeding => "↑",
         DownloadState::Paused => "⏸",
-        DownloadState::Queued => "⏳",
+        DownloadState::Queued => "◷",
         DownloadState::Connecting => "⟳",
         DownloadState::Completed => "✓",
         DownloadState::Error { .. } => "✗",
     };
 
-    let progress = dl.progress.percentage();
-    let progress_bar = create_progress_bar(progress, 20);
+    let state_color = theme.state_color(&dl.state);
+    let name = truncate_str(&dl.metadata.name, area.width.saturating_sub(20) as usize);
+    let state_label = format_state(&dl.state);
 
-    let speed = if dl.progress.download_speed > 0 {
-        format!("{}/s", format_speed(dl.progress.download_speed))
-    } else {
-        String::new()
-    };
+    let selector = if is_selected { "▶" } else { " " };
+    let bg = if is_selected { theme.surface0 } else { theme.bg };
 
-    let eta = dl
-        .progress
-        .eta_seconds
-        .map(format_duration)
-        .unwrap_or_default();
+    // Line 1: selector + icon + name + state
+    let line1 = Line::from(vec![
+        Span::styled(format!(" {} ", selector), Style::default().fg(theme.lavender).bg(bg)),
+        Span::styled(format!("{} ", state_icon), Style::default().fg(state_color).bg(bg)),
+        Span::styled(name, Style::default().fg(theme.text).bg(bg)),
+        Span::raw("  "),
+        Span::styled(state_label, Style::default().fg(state_color).bg(bg)),
+    ]);
 
-    let name = truncate_str(&dl.metadata.name, 35);
+    let line1_area = Rect::new(area.x, area.y, area.width, 1);
+    // Fill background for line 1
+    frame.render_widget(Block::default().style(Style::default().bg(bg)), line1_area);
+    frame.render_widget(Paragraph::new(line1), line1_area);
 
-    let line = format!(
-        "{} {} {:<35} {} {:>6.1}% {:>10} {:>8}",
-        if is_selected { "▶" } else { " " },
-        state_icon,
-        name,
-        progress_bar,
-        progress,
-        speed,
-        eta
-    );
+    // Line 2: progress bar + percentage + speed + ETA
+    if area.height >= 2 {
+        let line2_area = Rect::new(area.x, area.y + 1, area.width, 1);
+        frame.render_widget(Block::default().style(Style::default().bg(bg)), line2_area);
 
-    let style = if is_selected {
-        theme.selected_style()
-    } else {
-        match &dl.state {
-            DownloadState::Completed => theme.success_style(),
-            DownloadState::Error { .. } => theme.error_style(),
-            DownloadState::Paused => theme.warning_style(),
-            _ => theme.normal_style(),
+        let progress = dl.progress.percentage();
+        let progress_color = theme.progress_color(progress);
+
+        let speed = if dl.progress.download_speed > 0 {
+            format!(" {}/s", format_speed(dl.progress.download_speed))
+        } else {
+            String::new()
+        };
+
+        let eta = dl
+            .progress
+            .eta_seconds
+            .map(|s| format!(" ETA {}", format_duration(s)))
+            .unwrap_or_default();
+
+        let label = format!("{:>5.1}%{}{}", progress, speed, eta);
+
+        // Indent to align under the name
+        let gauge_left = 5_u16; // "  ▶ ↓ " prefix width
+        let label_width = label.len() as u16 + 1;
+        let gauge_width = area.width.saturating_sub(gauge_left + label_width);
+
+        if gauge_width > 4 {
+            let gauge_area = Rect::new(area.x + gauge_left, area.y + 1, gauge_width, 1);
+            let gauge = LineGauge::default()
+                .ratio(progress / 100.0)
+                .filled_style(Style::default().fg(progress_color).bg(bg))
+                .unfilled_style(Style::default().fg(theme.surface1).bg(bg))
+                .filled_symbol("━")
+                .unfilled_symbol("━");
+            frame.render_widget(gauge, gauge_area);
+
+            let label_area = Rect::new(
+                area.x + gauge_left + gauge_width,
+                area.y + 1,
+                label_width,
+                1,
+            );
+            let label_widget =
+                Paragraph::new(Span::styled(format!(" {}", label), Style::default().fg(theme.subtext0).bg(bg)));
+            frame.render_widget(label_widget, label_area);
         }
-    };
-
-    ListItem::new(line).style(style)
-}
-
-fn create_progress_bar(percent: f64, width: usize) -> String {
-    let filled = ((percent / 100.0) * width as f64) as usize;
-    let empty = width.saturating_sub(filled);
-    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+    }
 }
 
 fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
@@ -182,6 +238,7 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(theme.border_style())
         .title(Line::from(" Details ").style(theme.title_style()));
 
@@ -189,6 +246,13 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
     frame.render_widget(block, area);
 
     if let Some(dl) = app.selected_download() {
+        // Split details: left metadata, right sparkline
+        let detail_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Length(34)])
+            .split(inner);
+
+        // Left: metadata
         let total = dl
             .progress
             .total_size
@@ -196,42 +260,99 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
             .unwrap_or_else(|| "Unknown".to_string());
         let completed = format_size(dl.progress.completed_size);
         let state = format_state(&dl.state);
+        let state_color = theme.state_color(&dl.state);
 
-        let dl_sparkline = speed_graph::sparkline_string(
-            &app.speed_history
-                .iter()
-                .map(|(d, _)| *d)
-                .collect::<Vec<_>>(),
-            30,
-        );
+        let meta_lines = vec![
+            Line::from(vec![
+                Span::styled("  Name: ", Style::default().fg(theme.overlay1)),
+                Span::styled(&dl.metadata.name, Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" State: ", Style::default().fg(theme.overlay1)),
+                Span::styled(state, Style::default().fg(state_color)),
+                Span::styled("  │  ", Style::default().fg(theme.surface2)),
+                Span::styled(format!("{:.1}%", dl.progress.percentage()), Style::default().fg(theme.text)),
+                Span::styled("  │  ", Style::default().fg(theme.surface2)),
+                Span::styled(format!("{} / {}", completed, total), Style::default().fg(theme.subtext0)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Speed: ", Style::default().fg(theme.overlay1)),
+                Span::styled(
+                    format!("{} ↓", format_speed(dl.progress.download_speed)),
+                    Style::default().fg(theme.teal),
+                ),
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{} ↑", format_speed(dl.progress.upload_speed)),
+                    Style::default().fg(theme.peach),
+                ),
+                Span::styled("  │  ", Style::default().fg(theme.surface2)),
+                Span::styled(format!("Peers: {}", dl.progress.connections), Style::default().fg(theme.subtext0)),
+                Span::styled("  │  ", Style::default().fg(theme.surface2)),
+                Span::styled(
+                    format!(
+                        "ETA: {}",
+                        dl.progress
+                            .eta_seconds
+                            .map(format_duration)
+                            .unwrap_or_else(|| "--".to_string())
+                    ),
+                    Style::default().fg(theme.subtext0),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  Path: ", Style::default().fg(theme.overlay1)),
+                Span::styled(
+                    truncate_str(&dl.metadata.save_dir.display().to_string(), 60),
+                    Style::default().fg(theme.overlay0),
+                ),
+            ]),
+        ];
 
-        let details = format!(
-            "Name: {}\n\
-             State: {}  │  Progress: {:.1}%  │  Size: {} / {}\n\
-             Speed: {} ↓  {} ↑  │  Connections: {}  │  ETA: {}\n\
-             Path: {}\n\
-             Speed graph: {}",
-            dl.metadata.name,
-            state,
-            dl.progress.percentage(),
-            completed,
-            total,
-            format_speed(dl.progress.download_speed),
-            format_speed(dl.progress.upload_speed),
-            dl.progress.connections,
-            dl.progress
-                .eta_seconds
-                .map(format_duration)
-                .unwrap_or_else(|| "--".to_string()),
-            dl.metadata.save_dir.display(),
-            dl_sparkline,
-        );
+        frame.render_widget(Paragraph::new(meta_lines), detail_chunks[0]);
 
-        let paragraph = Paragraph::new(details)
-            .style(theme.normal_style())
-            .wrap(Wrap { trim: true });
+        // Right: sparkline graphs
+        let spark_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Download label
+                Constraint::Length(3), // Download sparkline
+                Constraint::Length(1), // Upload label
+                Constraint::Length(2), // Upload sparkline
+            ])
+            .split(detail_chunks[1]);
 
-        frame.render_widget(paragraph, inner);
+        // Download speed sparkline
+        let dl_label = Line::from(vec![
+            Span::styled(" Speed ↓ ", Style::default().fg(theme.teal).add_modifier(Modifier::BOLD)),
+        ]);
+        frame.render_widget(Paragraph::new(dl_label), spark_chunks[0]);
+
+        let dl_data: Vec<u64> = app
+            .speed_history
+            .iter()
+            .map(|(d, _)| *d)
+            .collect();
+        let dl_sparkline = Sparkline::default()
+            .data(&dl_data)
+            .style(Style::default().fg(theme.teal).bg(theme.bg_dim));
+        frame.render_widget(dl_sparkline, spark_chunks[1]);
+
+        // Upload speed sparkline
+        let ul_label = Line::from(vec![
+            Span::styled(" Speed ↑ ", Style::default().fg(theme.peach).add_modifier(Modifier::BOLD)),
+        ]);
+        frame.render_widget(Paragraph::new(ul_label), spark_chunks[2]);
+
+        let ul_data: Vec<u64> = app
+            .speed_history
+            .iter()
+            .map(|(_, u)| *u)
+            .collect();
+        let ul_sparkline = Sparkline::default()
+            .data(&ul_data)
+            .style(Style::default().fg(theme.peach).bg(theme.bg_dim));
+        frame.render_widget(ul_sparkline, spark_chunks[3]);
     } else {
         let msg = Paragraph::new("Select a download to view details")
             .style(theme.muted_style())
@@ -243,13 +364,33 @@ fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
 
-    let help_text =
-        " [a]dd  [p]ause  [r]esume  [c]ancel  [d]elete  [↑↓/jk]navigate  [?]help  [q]uit ";
+    let keys = vec![
+        ("a", "add"),
+        ("p", "pause"),
+        ("r", "resume"),
+        ("c", "cancel"),
+        ("d", "delete"),
+        ("1-3", "views"),
+        ("?", "help"),
+        ("q", "quit"),
+    ];
 
-    let status = Paragraph::new(help_text)
-        .style(theme.header_style())
-        .alignment(Alignment::Center);
+    let mut spans = Vec::new();
+    for (i, (key, desc)) in keys.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ", Style::default().bg(theme.bg_deep)));
+        }
+        spans.push(Span::styled(
+            format!(" {} ", key),
+            Style::default().fg(theme.bg_deep).bg(theme.accent),
+        ));
+        spans.push(Span::styled(
+            format!(" {} ", desc),
+            Style::default().fg(theme.subtext0).bg(theme.bg_deep),
+        ));
+    }
 
+    let status = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.bg_deep));
     frame.render_widget(status, area);
 }
 
@@ -257,8 +398,6 @@ fn render_help_dialog(frame: &mut Frame, app: &TuiApp) {
     let theme = app.theme();
 
     let area = centered_rect(60, 70, frame.area());
-
-    // Clear the area behind the dialog
     frame.render_widget(Clear, area);
 
     let help_text = "\
@@ -291,12 +430,13 @@ fn render_help_dialog(frame: &mut Frame, app: &TuiApp) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(theme.title_style())
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border_focused_style())
         .title(Line::from(" Help ").style(theme.title_style()));
 
     let paragraph = Paragraph::new(help_text)
         .block(block)
-        .style(theme.normal_style())
+        .style(Style::default().fg(theme.text).bg(theme.bg))
         .wrap(Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
@@ -306,28 +446,69 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
     let theme = app.theme();
 
     match dialog {
-        DialogState::AddUrl { input, cursor: _ } => {
-            let area = centered_rect(60, 15, frame.area());
+        DialogState::AddUrl { input, cursor } => {
+            let area = centered_rect(65, 20, frame.area());
             frame.render_widget(Clear, area);
 
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_style(theme.title_style())
-                .title(Line::from(" Add Download ").style(theme.title_style()));
+                .border_type(BorderType::Rounded)
+                .border_style(theme.border_focused_style())
+                .title(Line::from(" Add Download ").style(theme.title_style()))
+                .style(Style::default().bg(theme.bg));
 
             let inner = block.inner(area);
             frame.render_widget(block, area);
 
-            let text = format!(
-                "Enter URL, magnet link, or torrent file path:\n\n> {}\n\n[Enter] Add  [Esc] Cancel",
-                input
+            // Prompt text
+            let prompt = Line::from(vec![
+                Span::styled(
+                    "  Enter URL, magnet link, or torrent file path:",
+                    Style::default().fg(theme.subtext0),
+                ),
+            ]);
+            let prompt_area = Rect::new(inner.x, inner.y, inner.width, 1);
+            frame.render_widget(Paragraph::new(prompt), prompt_area);
+
+            // Input field with distinct background
+            let input_y = inner.y + 2;
+            let input_area = Rect::new(inner.x + 1, input_y, inner.width - 2, 1);
+            let input_block_area = Rect::new(inner.x + 1, input_y, inner.width - 2, 1);
+            frame.render_widget(
+                Block::default().style(Style::default().bg(theme.surface0)),
+                input_block_area,
             );
 
-            let paragraph = Paragraph::new(text)
-                .style(theme.normal_style())
-                .wrap(Wrap { trim: true });
+            let input_text = Paragraph::new(Span::styled(
+                format!(" {}", input),
+                Style::default().fg(theme.text).bg(theme.surface0),
+            ));
+            frame.render_widget(input_text, input_area);
 
-            frame.render_widget(paragraph, inner);
+            // Show cursor position
+            let cursor_x = input_area.x + 1 + *cursor as u16;
+            if cursor_x < input_area.x + input_area.width {
+                frame.set_cursor_position(Position::new(cursor_x, input_y));
+            }
+
+            // Buttons
+            let btn_y = inner.y + 4;
+            if btn_y < inner.y + inner.height {
+                let btn_area = Rect::new(inner.x + 2, btn_y, inner.width - 4, 1);
+                let buttons = Line::from(vec![
+                    Span::styled(
+                        " Enter ",
+                        Style::default().fg(theme.bg_deep).bg(theme.accent),
+                    ),
+                    Span::styled(" Add  ", Style::default().fg(theme.subtext0)),
+                    Span::styled(
+                        " Esc ",
+                        Style::default().fg(theme.bg_deep).bg(theme.surface2),
+                    ),
+                    Span::styled(" Cancel ", Style::default().fg(theme.subtext0)),
+                ]);
+                frame.render_widget(Paragraph::new(buttons), btn_area);
+            }
         }
         DialogState::ConfirmCancel { id, delete_files } => {
             let area = centered_rect(50, 20, frame.area());
@@ -339,40 +520,71 @@ fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
                 "cancel"
             };
 
-            let text = format!(
-                "Are you sure you want to {} download {}?\n\n[y] Yes  [n] No",
-                action,
-                id.to_gid()
-            );
+            let gid = id.to_gid();
+            let content = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  Are you sure you want to ", Style::default().fg(theme.text)),
+                    Span::styled(
+                        action,
+                        if *delete_files {
+                            Style::default().fg(theme.error).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(theme.warning)
+                        },
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        format!("  download {}?", truncate_str(&gid, 16)),
+                        Style::default().fg(theme.text),
+                    ),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(" y ", Style::default().fg(theme.bg_deep).bg(theme.success)),
+                    Span::styled(" Yes  ", Style::default().fg(theme.subtext0)),
+                    Span::styled(" n ", Style::default().fg(theme.bg_deep).bg(theme.error)),
+                    Span::styled(" No ", Style::default().fg(theme.subtext0)),
+                ]),
+            ];
 
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_style(theme.warning_style())
-                .title(Line::from(" Confirm ").style(theme.warning_style()));
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.warning))
+                .title(Line::from(" Confirm ").style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)))
+                .style(Style::default().bg(theme.bg));
 
-            let paragraph = Paragraph::new(text)
-                .block(block)
-                .style(theme.normal_style())
-                .wrap(Wrap { trim: true });
-
+            let paragraph = Paragraph::new(content).block(block);
             frame.render_widget(paragraph, area);
         }
         DialogState::Error { message } => {
             let area = centered_rect(50, 20, frame.area());
             frame.render_widget(Clear, area);
 
-            let text = format!("{}\n\nPress any key to close", message);
+            let content = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("  {}", message),
+                    Style::default().fg(theme.text),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Press any key to close",
+                    Style::default().fg(theme.overlay0),
+                )),
+            ];
 
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_style(theme.error_style())
-                .title(Line::from(" Error ").style(theme.error_style()));
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.error))
+                .title(Line::from(" Error ").style(Style::default().fg(theme.error).add_modifier(Modifier::BOLD)))
+                .style(Style::default().bg(theme.bg));
 
-            let paragraph = Paragraph::new(text)
-                .block(block)
-                .style(theme.normal_style())
-                .wrap(Wrap { trim: true });
-
+            let paragraph = Paragraph::new(content).block(block);
             frame.render_widget(paragraph, area);
         }
     }

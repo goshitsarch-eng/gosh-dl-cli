@@ -1,75 +1,164 @@
 use ratatui::style::{Color, Modifier, Style};
 
+/// Palette-based theme using Catppuccin color system.
+/// Widgets pick from abstract color slots rather than role-specific fields.
+/// All palette colors are kept even if not yet used by the UI.
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Theme {
-    pub header_bg: Color,
-    pub header_fg: Color,
-    pub selected_bg: Color,
-    pub selected_fg: Color,
-    pub normal_fg: Color,
-    pub muted_fg: Color,
-    pub success_fg: Color,
-    pub error_fg: Color,
-    pub warning_fg: Color,
-    pub progress_bar_filled: Color,
-    pub progress_bar_empty: Color,
-    pub border: Color,
-    pub title_fg: Color,
+    // Background layers (depth)
+    pub bg: Color,
+    pub bg_dim: Color,
+    pub bg_deep: Color,
+
+    // Surface layers (interactive elements)
+    pub surface0: Color,
+    pub surface1: Color,
+    pub surface2: Color,
+
+    // Text hierarchy
+    pub text: Color,
+    pub subtext1: Color,
+    pub subtext0: Color,
+    pub overlay1: Color,
+    pub overlay0: Color,
+
+    // Semantic colors
+    pub accent: Color,
+    pub success: Color,
+    pub error: Color,
+    pub warning: Color,
+    pub info: Color,
+
+    // Extended palette
+    pub pink: Color,
+    pub mauve: Color,
+    pub peach: Color,
+    pub teal: Color,
+    pub sky: Color,
+    pub lavender: Color,
+    pub flamingo: Color,
+    pub rosewater: Color,
 }
 
 impl Theme {
-    pub fn dark() -> Self {
+    /// Catppuccin Mocha — default dark theme
+    pub fn mocha() -> Self {
         Self {
-            header_bg: Color::Rgb(30, 30, 40),
-            header_fg: Color::White,
-            selected_bg: Color::Rgb(50, 50, 70),
-            selected_fg: Color::White,
-            normal_fg: Color::Gray,
-            muted_fg: Color::DarkGray,
-            success_fg: Color::Green,
-            error_fg: Color::Red,
-            warning_fg: Color::Yellow,
-            progress_bar_filled: Color::Cyan,
-            progress_bar_empty: Color::DarkGray,
-            border: Color::DarkGray,
-            title_fg: Color::Cyan,
+            bg: Color::Rgb(30, 30, 46),
+            bg_dim: Color::Rgb(24, 24, 37),
+            bg_deep: Color::Rgb(17, 17, 27),
+            surface0: Color::Rgb(49, 50, 68),
+            surface1: Color::Rgb(69, 71, 90),
+            surface2: Color::Rgb(88, 91, 112),
+            text: Color::Rgb(205, 214, 244),
+            subtext1: Color::Rgb(186, 194, 222),
+            subtext0: Color::Rgb(166, 173, 200),
+            overlay1: Color::Rgb(127, 132, 156),
+            overlay0: Color::Rgb(108, 112, 134),
+            accent: Color::Rgb(137, 180, 250),
+            success: Color::Rgb(166, 227, 161),
+            error: Color::Rgb(243, 139, 168),
+            warning: Color::Rgb(249, 226, 175),
+            info: Color::Rgb(116, 199, 236),
+            pink: Color::Rgb(245, 194, 231),
+            mauve: Color::Rgb(203, 166, 247),
+            peach: Color::Rgb(250, 179, 135),
+            teal: Color::Rgb(148, 226, 213),
+            sky: Color::Rgb(137, 220, 235),
+            lavender: Color::Rgb(180, 190, 254),
+            flamingo: Color::Rgb(242, 205, 205),
+            rosewater: Color::Rgb(245, 224, 220),
         }
     }
 
-    pub fn light() -> Self {
+    /// Catppuccin Macchiato — alternative dark theme
+    pub fn macchiato() -> Self {
         Self {
-            header_bg: Color::Rgb(240, 240, 240),
-            header_fg: Color::Black,
-            selected_bg: Color::Rgb(200, 220, 255),
-            selected_fg: Color::Black,
-            normal_fg: Color::Black,
-            muted_fg: Color::DarkGray,
-            success_fg: Color::Rgb(0, 128, 0),
-            error_fg: Color::Rgb(200, 0, 0),
-            warning_fg: Color::Rgb(200, 150, 0),
-            progress_bar_filled: Color::Blue,
-            progress_bar_empty: Color::LightBlue,
-            border: Color::Gray,
-            title_fg: Color::Blue,
+            bg: Color::Rgb(36, 39, 58),
+            bg_dim: Color::Rgb(30, 32, 48),
+            bg_deep: Color::Rgb(24, 25, 38),
+            surface0: Color::Rgb(54, 58, 79),
+            surface1: Color::Rgb(73, 77, 100),
+            surface2: Color::Rgb(91, 96, 120),
+            text: Color::Rgb(202, 211, 245),
+            subtext1: Color::Rgb(184, 192, 224),
+            subtext0: Color::Rgb(165, 173, 203),
+            overlay1: Color::Rgb(128, 135, 162),
+            overlay0: Color::Rgb(110, 115, 141),
+            accent: Color::Rgb(138, 173, 244),
+            success: Color::Rgb(166, 218, 149),
+            error: Color::Rgb(237, 135, 150),
+            warning: Color::Rgb(238, 212, 159),
+            info: Color::Rgb(125, 196, 228),
+            pink: Color::Rgb(245, 189, 230),
+            mauve: Color::Rgb(198, 160, 246),
+            peach: Color::Rgb(245, 169, 127),
+            teal: Color::Rgb(139, 213, 202),
+            sky: Color::Rgb(145, 215, 227),
+            lavender: Color::Rgb(183, 189, 248),
+            flamingo: Color::Rgb(240, 198, 198),
+            rosewater: Color::Rgb(244, 219, 214),
         }
     }
 
+    /// Catppuccin Latte — light theme
+    pub fn latte() -> Self {
+        Self {
+            bg: Color::Rgb(239, 241, 245),
+            bg_dim: Color::Rgb(230, 233, 239),
+            bg_deep: Color::Rgb(220, 224, 232),
+            surface0: Color::Rgb(204, 208, 218),
+            surface1: Color::Rgb(188, 192, 204),
+            surface2: Color::Rgb(172, 176, 190),
+            text: Color::Rgb(76, 79, 105),
+            subtext1: Color::Rgb(92, 95, 119),
+            subtext0: Color::Rgb(108, 111, 133),
+            overlay1: Color::Rgb(140, 143, 161),
+            overlay0: Color::Rgb(156, 160, 176),
+            accent: Color::Rgb(30, 102, 245),
+            success: Color::Rgb(64, 160, 43),
+            error: Color::Rgb(210, 15, 57),
+            warning: Color::Rgb(223, 142, 29),
+            info: Color::Rgb(32, 159, 181),
+            pink: Color::Rgb(234, 118, 203),
+            mauve: Color::Rgb(136, 57, 239),
+            peach: Color::Rgb(254, 100, 11),
+            teal: Color::Rgb(23, 146, 153),
+            sky: Color::Rgb(4, 165, 229),
+            lavender: Color::Rgb(114, 135, 253),
+            flamingo: Color::Rgb(221, 120, 120),
+            rosewater: Color::Rgb(220, 138, 120),
+        }
+    }
+
+    /// No-color fallback
     pub fn plain() -> Self {
         Self {
-            header_bg: Color::Reset,
-            header_fg: Color::Reset,
-            selected_bg: Color::Reset,
-            selected_fg: Color::Reset,
-            normal_fg: Color::Reset,
-            muted_fg: Color::Reset,
-            success_fg: Color::Reset,
-            error_fg: Color::Reset,
-            warning_fg: Color::Reset,
-            progress_bar_filled: Color::Reset,
-            progress_bar_empty: Color::Reset,
-            border: Color::Reset,
-            title_fg: Color::Reset,
+            bg: Color::Reset,
+            bg_dim: Color::Reset,
+            bg_deep: Color::Reset,
+            surface0: Color::Reset,
+            surface1: Color::Reset,
+            surface2: Color::Reset,
+            text: Color::Reset,
+            subtext1: Color::Reset,
+            subtext0: Color::Reset,
+            overlay1: Color::Reset,
+            overlay0: Color::Reset,
+            accent: Color::Reset,
+            success: Color::Reset,
+            error: Color::Reset,
+            warning: Color::Reset,
+            info: Color::Reset,
+            pink: Color::Reset,
+            mauve: Color::Reset,
+            peach: Color::Reset,
+            teal: Color::Reset,
+            sky: Color::Reset,
+            lavender: Color::Reset,
+            flamingo: Color::Reset,
+            rosewater: Color::Reset,
         }
     }
 
@@ -78,50 +167,55 @@ impl Theme {
             return Self::plain();
         }
         match name.to_lowercase().as_str() {
-            "light" => Self::light(),
-            _ => Self::dark(),
+            "light" | "latte" => Self::latte(),
+            "macchiato" => Self::macchiato(),
+            _ => Self::mocha(),
         }
     }
 
-    // Style helpers
-    pub fn header_style(&self) -> Style {
-        Style::default()
-            .bg(self.header_bg)
-            .fg(self.header_fg)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn selected_style(&self) -> Style {
-        Style::default().bg(self.selected_bg).fg(self.selected_fg)
-    }
-
-    pub fn normal_style(&self) -> Style {
-        Style::default().fg(self.normal_fg)
-    }
+    // ── Style helpers ──────────────────────────────────────────
 
     pub fn muted_style(&self) -> Style {
-        Style::default().fg(self.muted_fg)
-    }
-
-    pub fn success_style(&self) -> Style {
-        Style::default().fg(self.success_fg)
-    }
-
-    pub fn error_style(&self) -> Style {
-        Style::default().fg(self.error_fg)
-    }
-
-    pub fn warning_style(&self) -> Style {
-        Style::default().fg(self.warning_fg)
+        Style::default().fg(self.overlay0)
     }
 
     pub fn title_style(&self) -> Style {
         Style::default()
-            .fg(self.title_fg)
+            .fg(self.accent)
             .add_modifier(Modifier::BOLD)
     }
 
     pub fn border_style(&self) -> Style {
-        Style::default().fg(self.border)
+        Style::default().fg(self.surface1)
+    }
+
+    pub fn border_focused_style(&self) -> Style {
+        Style::default().fg(self.accent)
+    }
+
+    /// Progress bar color based on completion percentage
+    pub fn progress_color(&self, percent: f64) -> Color {
+        if percent >= 100.0 {
+            self.success
+        } else if percent >= 70.0 {
+            self.accent
+        } else if percent >= 30.0 {
+            self.peach
+        } else {
+            self.error
+        }
+    }
+
+    /// State-specific foreground color
+    pub fn state_color(&self, state: &gosh_dl::DownloadState) -> Color {
+        match state {
+            gosh_dl::DownloadState::Downloading => self.pink,
+            gosh_dl::DownloadState::Seeding => self.teal,
+            gosh_dl::DownloadState::Paused => self.warning,
+            gosh_dl::DownloadState::Queued => self.overlay1,
+            gosh_dl::DownloadState::Connecting => self.sky,
+            gosh_dl::DownloadState::Completed => self.success,
+            gosh_dl::DownloadState::Error { .. } => self.error,
+        }
     }
 }
