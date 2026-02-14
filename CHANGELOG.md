@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-02-14
+
+### Added
+
+- Two-column dashboard layout with responsive auto-detection (TwoColumn ≥100x24, SingleColumn 80–99, Minimal <80x20)
+- btop-style borders with embedded titles on all panels and dialogs
+- Gradient progress bars with three-stop color interpolation (red→orange→green) via direct buffer writes
+- Network activity graph using Unicode block elements (▁▂▃▄▅▆▇█) with auto-scaling Y-axis and gradient coloring
+- Chunk map widget showing parallel download progress per chunk with superpixel downsampling
+- Activity log panel with timestamped events, level icons, and elapsed-time display (toggle with `L`)
+- Search/filter bar with vim-style `/` trigger, real-time filtering, and scope cycling (`Ctrl+S`: All/Name/URL/State)
+- In-TUI settings panel with 5 tabs (General, Network, BitTorrent, Interface, Schedule), boolean toggles, and inline text editing
+- Batch import dialog with two phases: multi-line URL input and review/confirm with per-entry validation
+- Download queue reordering with `J`/`K` (Shift) keys mapped to engine priority
+- Brand bar showing version, download/upload speeds, and download count
+- ASCII logo widget in two-column left header
+- Standalone tab bar widget with per-tab download counts
+- Peak download/upload speed tracking
+- Theme gradient functions: `lerp_color`, `progress_gradient`, `dl_graph_gradient`, `ul_graph_gradient`
+- `is_tab`, `is_shift_key`, `is_upper_key` key detection helpers
+
+### Changed
+
+- Split monolithic `ui.rs` (741 LOC) into 16 focused widget modules under `tui/widgets/`
+- `ui.rs` rewritten as slim layout dispatcher (~230 LOC) with three responsive render paths
+- Right column dynamically allocates space between net graph, details/activity log, and chunk map
+- Status bar updated with new keybinding hints (S settings, A batch, / search, L log)
+- Details panel and download list now use btop-style block borders
+- Progress bars replaced from LineGauge to custom gradient bar renderer
+
 ## [0.2.5] - 2026-02-14
 
 ### Added
@@ -135,7 +165,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.2...v0.2.5
 [0.2.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.2...v0.2.2
 [0.1.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.1...v0.1.2
