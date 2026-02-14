@@ -41,6 +41,7 @@ pub struct Theme {
     pub rosewater: Color,
 }
 
+#[allow(dead_code)]
 impl Theme {
     /// Catppuccin Mocha — default dark theme
     pub fn mocha() -> Self {
@@ -204,6 +205,38 @@ impl Theme {
         } else {
             self.error
         }
+    }
+
+    pub fn lerp_color(a: Color, b: Color, t: f64) -> Color {
+        if let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (a, b) {
+            let t = t.clamp(0.0, 1.0);
+            Color::Rgb(
+                (r1 as f64 + (r2 as f64 - r1 as f64) * t) as u8,
+                (g1 as f64 + (g2 as f64 - g1 as f64) * t) as u8,
+                (b1 as f64 + (b2 as f64 - b1 as f64) * t) as u8,
+            )
+        } else if t < 0.5 {
+            a
+        } else {
+            b
+        }
+    }
+
+    pub fn progress_gradient(&self, t: f64) -> Color {
+        // Three-stop: error -> peach -> success
+        if t < 0.5 {
+            Self::lerp_color(self.error, self.peach, t * 2.0)
+        } else {
+            Self::lerp_color(self.peach, self.success, (t - 0.5) * 2.0)
+        }
+    }
+
+    pub fn dl_graph_gradient(&self, t: f64) -> Color {
+        Self::lerp_color(self.mauve, self.teal, t)
+    }
+
+    pub fn ul_graph_gradient(&self, t: f64) -> Color {
+        Self::lerp_color(self.peach, self.pink, t)
     }
 
     /// State-specific foreground color

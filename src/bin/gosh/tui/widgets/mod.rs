@@ -1,2 +1,16 @@
-// Custom TUI widgets
-// Reserved for future widget additions
+pub mod activity_log;
+pub mod batch_import;
+pub mod btop_border;
+pub mod chunk_map;
+pub mod details_panel;
+pub mod dialogs;
+pub mod download_item;
+pub mod download_list;
+pub mod gradient_bar;
+pub mod header;
+pub mod logo;
+pub mod net_graph;
+pub mod settings;
+pub mod status_bar;
+pub mod tab_bar;
+pub mod toasts;

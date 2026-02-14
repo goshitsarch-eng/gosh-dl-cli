@@ -149,6 +149,31 @@ pub fn is_page_down(event: &CrosstermEvent) -> bool {
     )
 }
 
+/// Helper to check for a shifted (uppercase) key
+pub fn is_shift_key(event: &CrosstermEvent, key: char) -> bool {
+    matches!(event, CrosstermEvent::Key(KeyEvent {
+        code: event::KeyCode::Char(c),
+        modifiers: event::KeyModifiers::SHIFT,
+        ..
+    }) if *c == key)
+}
+
+/// Alias for is_shift_key (uppercase letter check)
+pub fn is_upper_key(event: &CrosstermEvent, key: char) -> bool {
+    is_shift_key(event, key)
+}
+
+/// Helper to check for Tab key
+pub fn is_tab(event: &CrosstermEvent) -> bool {
+    matches!(
+        event,
+        CrosstermEvent::Key(KeyEvent {
+            code: event::KeyCode::Tab,
+            ..
+        })
+    )
+}
+
 /// Helper to check for Ctrl+C
 pub fn is_ctrl_c(event: &CrosstermEvent) -> bool {
     matches!(
