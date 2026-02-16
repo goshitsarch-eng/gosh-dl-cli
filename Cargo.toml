@@ -1,6 +1,6 @@
 [package]
 name = "gosh-dl-cli"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 rust-version = "1.85"
 description = "Command-line interface for the gosh-dl download engine"
@@ -20,7 +20,7 @@ path = "src/bin/gosh/main.rs"
 
 [dependencies]
 # Download engine from GitHub
-gosh-dl = "0.2.5"
+gosh-dl = "0.2.7"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "time", "fs", "io-util"] }
