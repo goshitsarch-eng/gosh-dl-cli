@@ -103,7 +103,11 @@ pub fn render_batch_import(frame: &mut Frame, dialog: &DialogState, app: &TuiApp
             // Line count
             let line_count = text.lines().count().max(1);
             let counter = Line::from(Span::styled(
-                format!("  {} line{}", line_count, if line_count == 1 { "" } else { "s" }),
+                format!(
+                    "  {} line{}",
+                    line_count,
+                    if line_count == 1 { "" } else { "s" }
+                ),
                 Style::default().fg(theme.overlay0),
             ));
             let counter_y = inner.y + inner.height - 1;
@@ -203,10 +207,7 @@ pub fn render_batch_import(frame: &mut Frame, dialog: &DialogState, app: &TuiApp
                 }
 
                 let line = Line::from(spans);
-                frame.render_widget(
-                    Paragraph::new(line),
-                    Rect::new(inner.x, y, inner.width, 1),
-                );
+                frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
             }
 
             // Summary

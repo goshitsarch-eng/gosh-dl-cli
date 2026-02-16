@@ -1,8 +1,4 @@
-use ratatui::{
-    prelude::*,
-    text::Line,
-    widgets::Tabs,
-};
+use ratatui::{prelude::*, text::Line, widgets::Tabs};
 
 use super::btop_border::btop_block;
 use crate::format::format_speed;
@@ -18,8 +14,16 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &TuiApp) {
         app.downloads.len()
     );
 
-    let block = btop_block(&format!("gosh v{}", env!("CARGO_PKG_VERSION")), theme, false)
-        .title_bottom(Line::from(speed_str).right_aligned().style(Style::default().fg(theme.teal)));
+    let block = btop_block(
+        &format!("gosh v{}", env!("CARGO_PKG_VERSION")),
+        theme,
+        false,
+    )
+    .title_bottom(
+        Line::from(speed_str)
+            .right_aligned()
+            .style(Style::default().fg(theme.teal)),
+    );
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -34,7 +38,11 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     let tabs = Tabs::new(tab_titles)
         .select(selected_tab)
-        .highlight_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().fg(theme.overlay1))
         .divider("\u{2502}")
         .padding(" ", " ");

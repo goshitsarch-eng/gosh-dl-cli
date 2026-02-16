@@ -303,4 +303,3 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
 
     Ok(options)
 }
-

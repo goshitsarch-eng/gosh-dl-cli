@@ -43,12 +43,22 @@ pub fn render_download_item(
     let state_label = format_state(&dl.state);
 
     let selector = if is_selected { "\u{25b6}" } else { " " };
-    let bg = if is_selected { theme.surface0 } else { theme.bg };
+    let bg = if is_selected {
+        theme.surface0
+    } else {
+        theme.bg
+    };
 
     // Line 1: selector + icon + name + state
     let line1 = Line::from(vec![
-        Span::styled(format!(" {} ", selector), Style::default().fg(theme.lavender).bg(bg)),
-        Span::styled(format!("{} ", state_icon), Style::default().fg(state_color).bg(bg)),
+        Span::styled(
+            format!(" {} ", selector),
+            Style::default().fg(theme.lavender).bg(bg),
+        ),
+        Span::styled(
+            format!("{} ", state_icon),
+            Style::default().fg(state_color).bg(bg),
+        ),
         Span::styled(name, Style::default().fg(theme.text).bg(bg)),
         Span::raw("  "),
         Span::styled(state_label, Style::default().fg(state_color).bg(bg)),
@@ -95,8 +105,10 @@ pub fn render_download_item(
                 label_width,
                 1,
             );
-            let label_widget =
-                Paragraph::new(Span::styled(format!(" {}", label), Style::default().fg(theme.subtext0).bg(bg)));
+            let label_widget = Paragraph::new(Span::styled(
+                format!(" {}", label),
+                Style::default().fg(theme.subtext0).bg(bg),
+            ));
             frame.render_widget(label_widget, label_area);
         }
     }
@@ -105,16 +117,34 @@ pub fn render_download_item(
 /// Connection quality bar based on peer count
 pub fn connection_quality(connections: u32) -> (&'static str, Color) {
     if connections > 50 {
-        ("\u{25b0}\u{25b0}\u{25b0}\u{25b0}\u{25b0}", Color::Rgb(166, 227, 161)) // success green
+        (
+            "\u{25b0}\u{25b0}\u{25b0}\u{25b0}\u{25b0}",
+            Color::Rgb(166, 227, 161),
+        ) // success green
     } else if connections > 20 {
-        ("\u{25b0}\u{25b0}\u{25b0}\u{25b0}\u{25b1}", Color::Rgb(137, 180, 250)) // accent blue
+        (
+            "\u{25b0}\u{25b0}\u{25b0}\u{25b0}\u{25b1}",
+            Color::Rgb(137, 180, 250),
+        ) // accent blue
     } else if connections > 5 {
-        ("\u{25b0}\u{25b0}\u{25b0}\u{25b1}\u{25b1}", Color::Rgb(148, 226, 213)) // teal
+        (
+            "\u{25b0}\u{25b0}\u{25b0}\u{25b1}\u{25b1}",
+            Color::Rgb(148, 226, 213),
+        ) // teal
     } else if connections > 1 {
-        ("\u{25b0}\u{25b0}\u{25b1}\u{25b1}\u{25b1}", Color::Rgb(249, 226, 175)) // warning yellow
+        (
+            "\u{25b0}\u{25b0}\u{25b1}\u{25b1}\u{25b1}",
+            Color::Rgb(249, 226, 175),
+        ) // warning yellow
     } else if connections > 0 {
-        ("\u{25b0}\u{25b1}\u{25b1}\u{25b1}\u{25b1}", Color::Rgb(250, 179, 135)) // peach
+        (
+            "\u{25b0}\u{25b1}\u{25b1}\u{25b1}\u{25b1}",
+            Color::Rgb(250, 179, 135),
+        ) // peach
     } else {
-        ("\u{25b1}\u{25b1}\u{25b1}\u{25b1}\u{25b1}", Color::Rgb(108, 112, 134)) // muted
+        (
+            "\u{25b1}\u{25b1}\u{25b1}\u{25b1}\u{25b1}",
+            Color::Rgb(108, 112, 134),
+        ) // muted
     }
 }

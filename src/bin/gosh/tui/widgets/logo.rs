@@ -9,7 +9,9 @@ pub fn render_logo(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let lines = vec![
         Line::from(Span::styled(
             format!(" gosh v{}", env!("CARGO_PKG_VERSION")),
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
             Span::styled(" \u{2193} ", Style::default().fg(theme.teal)),

@@ -63,19 +63,17 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             let area = centered_rect(65, 20, frame.area());
             frame.render_widget(Clear, area);
 
-            let block = btop_block("Add Download", theme, true)
-                .style(Style::default().bg(theme.bg));
+            let block =
+                btop_block("Add Download", theme, true).style(Style::default().bg(theme.bg));
 
             let inner = block.inner(area);
             frame.render_widget(block, area);
 
             // Prompt text
-            let prompt = Line::from(vec![
-                Span::styled(
-                    "  Enter URL, magnet link, or torrent file path:",
-                    Style::default().fg(theme.subtext0),
-                ),
-            ]);
+            let prompt = Line::from(vec![Span::styled(
+                "  Enter URL, magnet link, or torrent file path:",
+                Style::default().fg(theme.subtext0),
+            )]);
             let prompt_area = Rect::new(inner.x, inner.y, inner.width, 1);
             frame.render_widget(Paragraph::new(prompt), prompt_area);
 
@@ -133,22 +131,25 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             let content = vec![
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("  Are you sure you want to ", Style::default().fg(theme.text)),
+                    Span::styled(
+                        "  Are you sure you want to ",
+                        Style::default().fg(theme.text),
+                    ),
                     Span::styled(
                         action,
                         if *delete_files {
-                            Style::default().fg(theme.error).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(theme.error)
+                                .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(theme.warning)
                         },
                     ),
                 ]),
-                Line::from(vec![
-                    Span::styled(
-                        format!("  download {}?", truncate_str(&gid, 16)),
-                        Style::default().fg(theme.text),
-                    ),
-                ]),
+                Line::from(vec![Span::styled(
+                    format!("  download {}?", truncate_str(&gid, 16)),
+                    Style::default().fg(theme.text),
+                )]),
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  "),
@@ -159,8 +160,7 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
                 ]),
             ];
 
-            let block = btop_block("Confirm", theme, true)
-                .style(Style::default().bg(theme.bg));
+            let block = btop_block("Confirm", theme, true).style(Style::default().bg(theme.bg));
 
             let paragraph = Paragraph::new(content).block(block);
             frame.render_widget(paragraph, area);
@@ -182,8 +182,7 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
                 )),
             ];
 
-            let block = btop_block("Error", theme, true)
-                .style(Style::default().bg(theme.bg));
+            let block = btop_block("Error", theme, true).style(Style::default().bg(theme.bg));
 
             let paragraph = Paragraph::new(content).block(block);
             frame.render_widget(paragraph, area);

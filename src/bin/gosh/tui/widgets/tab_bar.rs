@@ -22,7 +22,11 @@ pub fn render_tab_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
     frame.render_widget(block, area);
     let tabs = Tabs::new(tab_titles)
         .select(selected_tab)
-        .highlight_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().fg(theme.overlay1))
         .divider("\u{2502}")
         .padding(" ", " ");

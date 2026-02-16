@@ -52,9 +52,6 @@ pub fn render_toasts(frame: &mut Frame, app: &TuiApp) {
         ]);
 
         frame.render_widget(Clear, toast_area);
-        frame.render_widget(
-            Paragraph::new(content).block(block),
-            toast_area,
-        );
+        frame.render_widget(Paragraph::new(content).block(block), toast_area);
     }
 }

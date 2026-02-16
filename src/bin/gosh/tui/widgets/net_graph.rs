@@ -4,7 +4,9 @@ use super::btop_border::btop_block;
 use crate::format::format_speed;
 use crate::tui::app::TuiApp;
 
-const BLOCKS: [char; 8] = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
+const BLOCKS: [char; 8] = [
+    '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}',
+];
 
 pub fn render_net_graph(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
@@ -55,11 +57,7 @@ fn render_sub_graph(
     };
 
     // Auto-scale: max value with 10% headroom, minimum 1024
-    let max_val = visible
-        .iter()
-        .copied()
-        .max()
-        .unwrap_or(0);
+    let max_val = visible.iter().copied().max().unwrap_or(0);
     let max_val = ((max_val as f64) * 1.1) as u64;
     let max_val = max_val.max(1024);
 

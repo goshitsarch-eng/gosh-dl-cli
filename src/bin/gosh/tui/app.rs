@@ -87,9 +87,6 @@ pub struct TuiApp {
     /// Right panel focus (for two-column mode)
     pub right_panel_focus: RightPanelFocus,
 
-    /// Details panel scroll offset
-    pub details_scroll: usize,
-
     /// Active search/filter state
     pub search: Option<SearchState>,
 
@@ -155,7 +152,6 @@ pub enum DialogState {
     Settings {
         active_tab: usize,
         selected_row: usize,
-        scroll_offset: usize,
         editing: Option<String>,
         draft: Box<CliConfig>,
         dirty: bool,
@@ -280,8 +276,7 @@ impl TuiApp {
 
         let theme = Theme::from_name(&config.tui.theme);
 
-        let (terminal_width, terminal_height) =
-            crossterm::terminal::size().unwrap_or((80, 24));
+        let (terminal_width, terminal_height) = crossterm::terminal::size().unwrap_or((80, 24));
 
         let layout_mode = if terminal_width >= 100 && terminal_height >= 24 {
             LayoutMode::TwoColumn
@@ -314,7 +309,6 @@ impl TuiApp {
             terminal_width,
             terminal_height,
             right_panel_focus: RightPanelFocus::Details,
-            details_scroll: 0,
             search: None,
             peak_download_speed: 0,
             peak_upload_speed: 0,
@@ -329,45 +323,6 @@ impl TuiApp {
 
     pub fn theme(&self) -> &Theme {
         &self.theme
-    }
-
-    pub fn config(&self) -> &CliConfig {
-        &self.config
-    }
-
-    pub fn filtered_downloads(&self) -> Vec<&DownloadStatus> {
-        match &self.search {
-            Some(search) if !search.query.is_empty() => {
-                let q = search.query.to_lowercase();
-                self.downloads
-                    .iter()
-                    .filter(|dl| match search.scope {
-                        SearchScope::All => {
-                            dl.metadata.name.to_lowercase().contains(&q)
-                                || dl
-                                    .metadata
-                                    .url
-                                    .as_deref()
-                                    .unwrap_or("")
-                                    .to_lowercase()
-                                    .contains(&q)
-                        }
-                        SearchScope::Name => dl.metadata.name.to_lowercase().contains(&q),
-                        SearchScope::Url => dl
-                            .metadata
-                            .url
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(&q),
-                        SearchScope::State => crate::format::format_state(&dl.state)
-                            .to_lowercase()
-                            .contains(&q),
-                    })
-                    .collect()
-            }
-            _ => self.downloads.iter().collect(),
-        }
     }
 
     fn reorder_download(&mut self, direction: i32) {
@@ -544,20 +499,39 @@ impl TuiApp {
                     return Ok(false);
                 }
                 DialogState::Settings {
-                    active_tab, selected_row, scroll_offset: _, editing, draft, dirty,
+                    active_tab,
+                    selected_row,
+                    editing,
+                    draft,
+                    dirty,
                 } => {
                     if let crossterm::event::Event::Key(key) = event {
                         if editing.is_some() {
                             match key.code {
-                                crossterm::event::KeyCode::Esc => { *editing = None; }
+                                crossterm::event::KeyCode::Esc => {
+                                    *editing = None;
+                                }
                                 crossterm::event::KeyCode::Enter => {
                                     if let Some(val) = editing.take() {
-                                        Self::apply_settings_edit(draft, *active_tab, *selected_row, &val);
+                                        Self::apply_settings_edit(
+                                            draft,
+                                            *active_tab,
+                                            *selected_row,
+                                            &val,
+                                        );
                                         *dirty = true;
                                     }
                                 }
-                                crossterm::event::KeyCode::Backspace => { if let Some(ref mut buf) = editing { buf.pop(); } }
-                                crossterm::event::KeyCode::Char(c) => { if let Some(ref mut buf) = editing { buf.push(c); } }
+                                crossterm::event::KeyCode::Backspace => {
+                                    if let Some(ref mut buf) = editing {
+                                        buf.pop();
+                                    }
+                                }
+                                crossterm::event::KeyCode::Char(c) => {
+                                    if let Some(ref mut buf) = editing {
+                                        buf.push(c);
+                                    }
+                                }
                                 _ => {}
                             }
                         } else {
@@ -571,22 +545,55 @@ impl TuiApp {
                                             let engine_cfg = self.config.to_engine_config();
                                             let _ = self.engine.set_config(engine_cfg);
                                             self.theme = Theme::from_name(&self.config.tui.theme);
-                                            self.push_toast("Settings saved".to_string(), ToastLevel::Success);
+                                            self.push_toast(
+                                                "Settings saved".to_string(),
+                                                ToastLevel::Success,
+                                            );
                                         }
                                     }
                                     self.dialog = None;
                                 }
-                                crossterm::event::KeyCode::Left => { if *active_tab > 0 { *active_tab -= 1; *selected_row = 0; } }
-                                crossterm::event::KeyCode::Right => { if *active_tab < 4 { *active_tab += 1; *selected_row = 0; } }
-                                crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => { if *selected_row > 0 { *selected_row -= 1; } }
-                                crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => { *selected_row += 1; }
-                                crossterm::event::KeyCode::Char(n @ '1'..='5') => { *active_tab = (n as usize) - ('1' as usize); *selected_row = 0; }
-                                crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ') => {
+                                crossterm::event::KeyCode::Left => {
+                                    if *active_tab > 0 {
+                                        *active_tab -= 1;
+                                        *selected_row = 0;
+                                    }
+                                }
+                                crossterm::event::KeyCode::Right => {
+                                    if *active_tab < 4 {
+                                        *active_tab += 1;
+                                        *selected_row = 0;
+                                    }
+                                }
+                                crossterm::event::KeyCode::Up
+                                | crossterm::event::KeyCode::Char('k') => {
+                                    if *selected_row > 0 {
+                                        *selected_row -= 1;
+                                    }
+                                }
+                                crossterm::event::KeyCode::Down
+                                | crossterm::event::KeyCode::Char('j') => {
+                                    *selected_row += 1;
+                                }
+                                crossterm::event::KeyCode::Char(n @ '1'..='5') => {
+                                    *active_tab = (n as usize) - ('1' as usize);
+                                    *selected_row = 0;
+                                }
+                                crossterm::event::KeyCode::Enter
+                                | crossterm::event::KeyCode::Char(' ') => {
                                     if Self::is_settings_bool(*active_tab, *selected_row) {
-                                        Self::toggle_settings_bool(draft, *active_tab, *selected_row);
+                                        Self::toggle_settings_bool(
+                                            draft,
+                                            *active_tab,
+                                            *selected_row,
+                                        );
                                         *dirty = true;
                                     } else {
-                                        *editing = Some(Self::get_settings_value(draft, *active_tab, *selected_row));
+                                        *editing = Some(Self::get_settings_value(
+                                            draft,
+                                            *active_tab,
+                                            *selected_row,
+                                        ));
                                     }
                                 }
                                 _ => {}
@@ -598,11 +605,21 @@ impl TuiApp {
                 DialogState::BatchImport { phase } => {
                     if let crossterm::event::Event::Key(key) = event {
                         match phase {
-                            BatchPhase::Input { text, cursor_line, cursor_col } => match key.code {
-                                crossterm::event::KeyCode::Esc => { self.dialog = None; }
+                            BatchPhase::Input {
+                                text,
+                                cursor_line,
+                                cursor_col,
+                            } => match key.code {
+                                crossterm::event::KeyCode::Esc => {
+                                    self.dialog = None;
+                                }
                                 crossterm::event::KeyCode::Enter => {
                                     if key.modifiers == crossterm::event::KeyModifiers::CONTROL {
-                                        let lines: Vec<String> = text.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                                        let lines: Vec<String> = text
+                                            .lines()
+                                            .map(|l| l.trim().to_string())
+                                            .filter(|l| !l.is_empty())
+                                            .collect();
                                         let entries: Vec<BatchEntry> = lines.into_iter().map(|url| {
                                             use crate::input::url_parser::parse_input;
                                             let (valid, kind, error) = match parse_input(&url) {
@@ -619,7 +636,10 @@ impl TuiApp {
                                             BatchEntry { url, valid, selected: valid, kind, error }
                                         }).collect();
                                         if !entries.is_empty() {
-                                            *phase = BatchPhase::Review { entries, selected: 0 };
+                                            *phase = BatchPhase::Review {
+                                                entries,
+                                                selected: 0,
+                                            };
                                         }
                                     } else {
                                         text.push('\n');
@@ -629,12 +649,30 @@ impl TuiApp {
                                 }
                                 crossterm::event::KeyCode::Char(c) => {
                                     let mut lines: Vec<&str> = text.lines().collect();
-                                    if lines.is_empty() { lines.push(""); }
-                                    while *cursor_line >= lines.len() { text.push('\n'); lines = text.lines().collect(); }
+                                    if lines.is_empty() {
+                                        lines.push("");
+                                    }
+                                    while *cursor_line >= lines.len() {
+                                        text.push('\n');
+                                        lines = text.lines().collect();
+                                    }
                                     let line = lines[*cursor_line];
-                                    let byte_pos = line.char_indices().nth(*cursor_col).map(|(i, _)| i).unwrap_or(line.len());
-                                    let abs_pos: usize = text.lines().take(*cursor_line).map(|l| l.len() + 1).sum::<usize>() + byte_pos;
-                                    if abs_pos <= text.len() { text.insert(abs_pos, c); } else { text.push(c); }
+                                    let byte_pos = line
+                                        .char_indices()
+                                        .nth(*cursor_col)
+                                        .map(|(i, _)| i)
+                                        .unwrap_or(line.len());
+                                    let abs_pos: usize = text
+                                        .lines()
+                                        .take(*cursor_line)
+                                        .map(|l| l.len() + 1)
+                                        .sum::<usize>()
+                                        + byte_pos;
+                                    if abs_pos <= text.len() {
+                                        text.insert(abs_pos, c);
+                                    } else {
+                                        text.push(c);
+                                    }
                                     *cursor_col += 1;
                                 }
                                 crossterm::event::KeyCode::Backspace => {
@@ -643,15 +681,33 @@ impl TuiApp {
                                         let lines: Vec<&str> = text.lines().collect();
                                         if *cursor_line < lines.len() {
                                             let line = lines[*cursor_line];
-                                            let byte_pos = line.char_indices().nth(*cursor_col).map(|(i, _)| i).unwrap_or(line.len());
-                                            let abs_pos: usize = text.lines().take(*cursor_line).map(|l| l.len() + 1).sum::<usize>() + byte_pos;
-                                            if abs_pos < text.len() { text.remove(abs_pos); }
+                                            let byte_pos = line
+                                                .char_indices()
+                                                .nth(*cursor_col)
+                                                .map(|(i, _)| i)
+                                                .unwrap_or(line.len());
+                                            let abs_pos: usize = text
+                                                .lines()
+                                                .take(*cursor_line)
+                                                .map(|l| l.len() + 1)
+                                                .sum::<usize>()
+                                                + byte_pos;
+                                            if abs_pos < text.len() {
+                                                text.remove(abs_pos);
+                                            }
                                         }
                                     } else if *cursor_line > 0 {
                                         let lines: Vec<&str> = text.lines().collect();
                                         let prev_col = lines[*cursor_line - 1].chars().count();
-                                        let abs_pos: usize = text.lines().take(*cursor_line).map(|l| l.len() + 1).sum::<usize>() - 1;
-                                        if abs_pos < text.len() { text.remove(abs_pos); }
+                                        let abs_pos: usize = text
+                                            .lines()
+                                            .take(*cursor_line)
+                                            .map(|l| l.len() + 1)
+                                            .sum::<usize>()
+                                            - 1;
+                                        if abs_pos < text.len() {
+                                            text.remove(abs_pos);
+                                        }
                                         *cursor_line -= 1;
                                         *cursor_col = prev_col;
                                     }
@@ -660,18 +716,51 @@ impl TuiApp {
                             },
                             BatchPhase::Review { entries, selected } => match key.code {
                                 crossterm::event::KeyCode::Esc => {
-                                    let text = entries.iter().map(|e| e.url.as_str()).collect::<Vec<_>>().join("\n");
-                                    *phase = BatchPhase::Input { text, cursor_line: 0, cursor_col: 0 };
+                                    let text = entries
+                                        .iter()
+                                        .map(|e| e.url.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    *phase = BatchPhase::Input {
+                                        text,
+                                        cursor_line: 0,
+                                        cursor_col: 0,
+                                    };
                                 }
-                                crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => { if *selected > 0 { *selected -= 1; } }
-                                crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => { if *selected + 1 < entries.len() { *selected += 1; } }
-                                crossterm::event::KeyCode::Char(' ') => { if let Some(e) = entries.get_mut(*selected) { e.selected = !e.selected; } }
+                                crossterm::event::KeyCode::Up
+                                | crossterm::event::KeyCode::Char('k') => {
+                                    if *selected > 0 {
+                                        *selected -= 1;
+                                    }
+                                }
+                                crossterm::event::KeyCode::Down
+                                | crossterm::event::KeyCode::Char('j') => {
+                                    if *selected + 1 < entries.len() {
+                                        *selected += 1;
+                                    }
+                                }
+                                crossterm::event::KeyCode::Char(' ') => {
+                                    if let Some(e) = entries.get_mut(*selected) {
+                                        e.selected = !e.selected;
+                                    }
+                                }
                                 crossterm::event::KeyCode::Enter => {
-                                    let urls: Vec<String> = entries.iter().filter(|e| e.selected && e.valid).map(|e| e.url.clone()).collect();
+                                    let urls: Vec<String> = entries
+                                        .iter()
+                                        .filter(|e| e.selected && e.valid)
+                                        .map(|e| e.url.clone())
+                                        .collect();
                                     self.dialog = None;
                                     let count = urls.len();
-                                    for url in urls { let _ = self.add_download(&url).await; }
-                                    if count > 0 { self.push_toast(format!("Added {} downloads", count), ToastLevel::Success); }
+                                    for url in urls {
+                                        let _ = self.add_download(&url).await;
+                                    }
+                                    if count > 0 {
+                                        self.push_toast(
+                                            format!("Added {} downloads", count),
+                                            ToastLevel::Success,
+                                        );
+                                    }
                                     return Ok(false);
                                 }
                                 _ => {}
@@ -695,16 +784,28 @@ impl TuiApp {
         if let Some(ref mut search) = self.search {
             if let crossterm::event::Event::Key(key) = event {
                 match key.code {
-                    crossterm::event::KeyCode::Esc => { self.search = None; return Ok(false); }
+                    crossterm::event::KeyCode::Esc => {
+                        self.search = None;
+                        return Ok(false);
+                    }
                     crossterm::event::KeyCode::Enter => {
-                        if search.query.is_empty() { self.search = None; }
+                        if search.query.is_empty() {
+                            self.search = None;
+                        }
                         return Ok(false);
                     }
                     crossterm::event::KeyCode::Char(c) => {
                         if key.modifiers == crossterm::event::KeyModifiers::CONTROL && c == 's' {
                             search.scope = search.scope.next();
-                        } else if key.modifiers == crossterm::event::KeyModifiers::NONE || key.modifiers == crossterm::event::KeyModifiers::SHIFT {
-                            let byte_pos = search.query.char_indices().nth(search.cursor).map(|(i, _)| i).unwrap_or(search.query.len());
+                        } else if key.modifiers == crossterm::event::KeyModifiers::NONE
+                            || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                        {
+                            let byte_pos = search
+                                .query
+                                .char_indices()
+                                .nth(search.cursor)
+                                .map(|(i, _)| i)
+                                .unwrap_or(search.query.len());
                             search.query.insert(byte_pos, c);
                             search.cursor += 1;
                         }
@@ -713,7 +814,12 @@ impl TuiApp {
                     crossterm::event::KeyCode::Backspace => {
                         if search.cursor > 0 {
                             search.cursor -= 1;
-                            let byte_pos = search.query.char_indices().nth(search.cursor).map(|(i, _)| i).unwrap_or(search.query.len());
+                            let byte_pos = search
+                                .query
+                                .char_indices()
+                                .nth(search.cursor)
+                                .map(|(i, _)| i)
+                                .unwrap_or(search.query.len());
                             search.query.remove(byte_pos);
                         }
                         return Ok(false);
@@ -807,7 +913,6 @@ impl TuiApp {
             self.dialog = Some(DialogState::Settings {
                 active_tab: 0,
                 selected_row: 0,
-                scroll_offset: 0,
                 editing: None,
                 draft: Box::new(self.config.clone()),
                 dirty: false,
@@ -843,25 +948,27 @@ impl TuiApp {
                 self.refresh_downloads();
             }
             DownloadEvent::Completed { id } => {
-                let name = self.downloads.iter()
+                let name = self
+                    .downloads
+                    .iter()
                     .find(|d| d.id == id)
                     .map(|d| d.metadata.name.clone());
                 self.refresh_downloads();
                 if let Some(ref name) = name {
-                    self.push_toast(
-                        truncate_str(name, 40),
-                        ToastLevel::Success,
+                    self.push_toast(truncate_str(name, 40), ToastLevel::Success);
+                    self.push_activity(
+                        ActivityLevel::Success,
+                        format!("Completed: {}", truncate_str(name, 50)),
                     );
-                    self.push_activity(ActivityLevel::Success, format!("Completed: {}", truncate_str(name, 50)));
                 }
             }
             DownloadEvent::Failed { error, .. } => {
                 self.refresh_downloads();
-                self.push_toast(
-                    truncate_str(&error, 40),
-                    ToastLevel::Error,
+                self.push_toast(truncate_str(&error, 40), ToastLevel::Error);
+                self.push_activity(
+                    ActivityLevel::Error,
+                    format!("Failed: {}", truncate_str(&error, 50)),
                 );
-                self.push_activity(ActivityLevel::Error, format!("Failed: {}", truncate_str(&error, 50)));
             }
             DownloadEvent::Progress { id, progress } => {
                 if let Some(dl) = self.downloads.iter_mut().find(|d| d.id == id) {
@@ -874,14 +981,19 @@ impl TuiApp {
                 }
             }
             DownloadEvent::Paused { id } => {
-                let name = self.downloads.iter()
+                let name = self
+                    .downloads
+                    .iter()
                     .find(|d| d.id == id)
                     .map(|d| d.metadata.name.clone());
                 if let Some(dl) = self.downloads.iter_mut().find(|d| d.id == id) {
                     dl.state = DownloadState::Paused;
                 }
                 if let Some(name) = name {
-                    self.push_activity(ActivityLevel::Warning, format!("Paused: {}", truncate_str(&name, 50)));
+                    self.push_activity(
+                        ActivityLevel::Warning,
+                        format!("Paused: {}", truncate_str(&name, 50)),
+                    );
                 }
             }
             DownloadEvent::Resumed { .. } => {
@@ -918,7 +1030,8 @@ impl TuiApp {
         self.throbber_state.calc_next();
 
         // Expire old toasts (4 second lifetime)
-        self.toasts.retain(|t| t.created.elapsed() < Duration::from_secs(4));
+        self.toasts
+            .retain(|t| t.created.elapsed() < Duration::from_secs(4));
     }
 
     /// Push a toast notification
@@ -1096,7 +1209,7 @@ impl TuiApp {
     // Settings helper: check if a row in a tab is a boolean setting
     pub fn is_settings_bool(tab: usize, row: usize) -> bool {
         match tab {
-            1 => row == 10, // accept_invalid_certs
+            1 => row == 10,            // accept_invalid_certs
             2 => matches!(row, 0..=4), // enable_dht, enable_pex, enable_lpd, max_peers is not bool but seed_ratio is not
             3 => matches!(row, 2 | 3), // show_speed_graph, show_peers
             _ => false,
@@ -1107,7 +1220,9 @@ impl TuiApp {
     pub fn toggle_settings_bool(draft: &mut CliConfig, tab: usize, row: usize) {
         match tab {
             1 => {
-                if row == 10 { draft.engine.accept_invalid_certs = !draft.engine.accept_invalid_certs; }
+                if row == 10 {
+                    draft.engine.accept_invalid_certs = !draft.engine.accept_invalid_certs;
+                }
             }
             2 => match row {
                 0 => draft.engine.enable_dht = !draft.engine.enable_dht,
@@ -1137,20 +1252,52 @@ impl TuiApp {
                 0 => draft.engine.max_concurrent_downloads.to_string(),
                 1 => draft.engine.max_connections_per_download.to_string(),
                 2 => draft.engine.min_segment_size.to_string(),
-                3 => draft.engine.global_download_limit.map(|v| v.to_string()).unwrap_or_default(),
-                4 => draft.engine.global_upload_limit.map(|v| v.to_string()).unwrap_or_default(),
+                3 => draft
+                    .engine
+                    .global_download_limit
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                4 => draft
+                    .engine
+                    .global_upload_limit
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
                 5 => draft.engine.user_agent.clone(),
                 6 => draft.engine.proxy_url.clone().unwrap_or_default(),
                 7 => draft.engine.connect_timeout.to_string(),
                 8 => draft.engine.read_timeout.to_string(),
                 9 => draft.engine.max_retries.to_string(),
-                10 => if draft.engine.accept_invalid_certs { "ON".to_string() } else { "OFF".to_string() },
+                10 => {
+                    if draft.engine.accept_invalid_certs {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    }
+                }
                 _ => String::new(),
             },
             2 => match row {
-                0 => if draft.engine.enable_dht { "ON".to_string() } else { "OFF".to_string() },
-                1 => if draft.engine.enable_pex { "ON".to_string() } else { "OFF".to_string() },
-                2 => if draft.engine.enable_lpd { "ON".to_string() } else { "OFF".to_string() },
+                0 => {
+                    if draft.engine.enable_dht {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    }
+                }
+                1 => {
+                    if draft.engine.enable_pex {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    }
+                }
+                2 => {
+                    if draft.engine.enable_lpd {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    }
+                }
                 3 => draft.engine.max_peers.to_string(),
                 4 => format!("{:.1}", draft.engine.seed_ratio),
                 _ => String::new(),
@@ -1158,8 +1305,20 @@ impl TuiApp {
             3 => match row {
                 0 => draft.tui.refresh_rate_ms.to_string(),
                 1 => draft.tui.theme.clone(),
-                2 => if draft.tui.show_speed_graph { "ON".to_string() } else { "OFF".to_string() },
-                3 => if draft.tui.show_peers { "ON".to_string() } else { "OFF".to_string() },
+                2 => {
+                    if draft.tui.show_speed_graph {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    }
+                }
+                3 => {
+                    if draft.tui.show_peers {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    }
+                }
                 _ => String::new(),
             },
             _ => String::new(),
@@ -1236,26 +1395,76 @@ impl TuiApp {
                 _ => {}
             },
             1 => match row {
-                0 => { if let Ok(v) = val.parse() { draft.engine.max_concurrent_downloads = v; } }
-                1 => { if let Ok(v) = val.parse() { draft.engine.max_connections_per_download = v; } }
-                2 => { if let Ok(v) = val.parse() { draft.engine.min_segment_size = v; } }
-                3 => { draft.engine.global_download_limit = val.parse().ok().filter(|&v: &u64| v > 0); }
-                4 => { draft.engine.global_upload_limit = val.parse().ok().filter(|&v: &u64| v > 0); }
-                5 => { draft.engine.user_agent = val.to_string(); }
-                6 => { draft.engine.proxy_url = if val.is_empty() { None } else { Some(val.to_string()) }; }
-                7 => { if let Ok(v) = val.parse() { draft.engine.connect_timeout = v; } }
-                8 => { if let Ok(v) = val.parse() { draft.engine.read_timeout = v; } }
-                9 => { if let Ok(v) = val.parse() { draft.engine.max_retries = v; } }
+                0 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.max_concurrent_downloads = v;
+                    }
+                }
+                1 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.max_connections_per_download = v;
+                    }
+                }
+                2 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.min_segment_size = v;
+                    }
+                }
+                3 => {
+                    draft.engine.global_download_limit = val.parse().ok().filter(|&v: &u64| v > 0);
+                }
+                4 => {
+                    draft.engine.global_upload_limit = val.parse().ok().filter(|&v: &u64| v > 0);
+                }
+                5 => {
+                    draft.engine.user_agent = val.to_string();
+                }
+                6 => {
+                    draft.engine.proxy_url = if val.is_empty() {
+                        None
+                    } else {
+                        Some(val.to_string())
+                    };
+                }
+                7 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.connect_timeout = v;
+                    }
+                }
+                8 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.read_timeout = v;
+                    }
+                }
+                9 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.max_retries = v;
+                    }
+                }
                 _ => {}
             },
             2 => match row {
-                3 => { if let Ok(v) = val.parse() { draft.engine.max_peers = v; } }
-                4 => { if let Ok(v) = val.parse() { draft.engine.seed_ratio = v; } }
+                3 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.max_peers = v;
+                    }
+                }
+                4 => {
+                    if let Ok(v) = val.parse() {
+                        draft.engine.seed_ratio = v;
+                    }
+                }
                 _ => {}
             },
             3 => match row {
-                0 => { if let Ok(v) = val.parse() { draft.tui.refresh_rate_ms = v; } }
-                1 => { draft.tui.theme = val.to_string(); }
+                0 => {
+                    if let Ok(v) = val.parse() {
+                        draft.tui.refresh_rate_ms = v;
+                    }
+                }
+                1 => {
+                    draft.tui.theme = val.to_string();
+                }
                 _ => {}
             },
             _ => {}

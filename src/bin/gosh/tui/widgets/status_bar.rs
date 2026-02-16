@@ -1,8 +1,4 @@
-use ratatui::{
-    prelude::*,
-    text::Line,
-    widgets::Paragraph,
-};
+use ratatui::{prelude::*, text::Line, widgets::Paragraph};
 
 use crate::tui::app::TuiApp;
 

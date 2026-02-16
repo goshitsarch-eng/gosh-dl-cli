@@ -65,7 +65,10 @@ fn majority_state(states: &[ChunkState]) -> ChunkState {
     if states.contains(&ChunkState::Downloading) {
         return ChunkState::Downloading;
     }
-    let complete = states.iter().filter(|s| **s == ChunkState::Complete).count();
+    let complete = states
+        .iter()
+        .filter(|s| **s == ChunkState::Complete)
+        .count();
     if complete > states.len() / 2 {
         ChunkState::Complete
     } else {

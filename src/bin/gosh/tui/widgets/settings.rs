@@ -11,7 +11,6 @@ pub fn render_settings(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
     let DialogState::Settings {
         active_tab,
         selected_row,
-        scroll_offset: _,
         editing,
         draft,
         dirty: _,
@@ -56,10 +55,8 @@ pub fn render_settings(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
 
     // Separator
     let sep_y = inner.y + 1;
-    let sep = Paragraph::new(Line::from(
-        "\u{2500}".repeat(inner.width as usize - 2),
-    ))
-    .style(Style::default().fg(theme.surface1));
+    let sep = Paragraph::new(Line::from("\u{2500}".repeat(inner.width as usize - 2)))
+        .style(Style::default().fg(theme.surface1));
     frame.render_widget(sep, Rect::new(inner.x + 1, sep_y, inner.width - 2, 1));
 
     // Settings rows
@@ -117,7 +114,14 @@ pub fn render_settings(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
 
         let line = Line::from(vec![
             Span::styled(padded_label, row_style),
-            Span::styled(format!(" {} ", display_value), value_style.bg(if is_selected { theme.surface0 } else { Color::Reset })),
+            Span::styled(
+                format!(" {} ", display_value),
+                value_style.bg(if is_selected {
+                    theme.surface0
+                } else {
+                    Color::Reset
+                }),
+            ),
             editing_indicator,
         ]);
 

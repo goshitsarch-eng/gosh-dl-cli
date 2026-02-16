@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "gosh-dl-cli"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "assert_cmd",

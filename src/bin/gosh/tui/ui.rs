@@ -14,7 +14,10 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
     let theme = app.theme();
 
     // Fill background
-    frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), frame.area());
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.bg)),
+        frame.area(),
+    );
 
     match app.layout_mode {
         LayoutMode::TwoColumn => render_two_column(frame, app),
@@ -58,11 +61,8 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
     let elapsed = app.last_frame.elapsed();
     app.last_frame = std::time::Instant::now();
     let screen_area = frame.area();
-    app.effect_manager.process_effects(
-        elapsed.into(),
-        frame.buffer_mut(),
-        screen_area,
-    );
+    app.effect_manager
+        .process_effects(elapsed.into(), frame.buffer_mut(), screen_area);
 }
 
 fn render_two_column(frame: &mut Frame, app: &mut TuiApp) {
@@ -76,11 +76,8 @@ fn render_two_column(frame: &mut Frame, app: &mut TuiApp) {
     // Brand bar (top line)
     render_brand_bar(frame, chunks[0], app);
 
-    let main_cols = Layout::horizontal([
-        Constraint::Percentage(58),
-        Constraint::Percentage(42),
-    ])
-    .split(chunks[1]);
+    let main_cols = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(chunks[1]);
 
     // Left column
     let left = Layout::vertical([
@@ -97,7 +94,8 @@ fn render_two_column(frame: &mut Frame, app: &mut TuiApp) {
     // Right column: net graph, details/activity log, optional chunk map
     let has_chunks = !app.chunk_states.is_empty();
     let chunk_height = if has_chunks {
-        let rows_needed = (app.chunk_count as u16).div_ceil(main_cols[1].width.saturating_sub(4).max(1)) + 2;
+        let rows_needed =
+            (app.chunk_count as u16).div_ceil(main_cols[1].width.saturating_sub(4).max(1)) + 2;
         rows_needed.min(8)
     } else {
         0
@@ -143,11 +141,7 @@ fn render_single_column(frame: &mut Frame, app: &mut TuiApp) {
 }
 
 fn render_minimal(frame: &mut Frame, app: &mut TuiApp) {
-    let chunks = Layout::vertical([
-        Constraint::Fill(1),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
+    let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(frame.area());
 
     download_list::render_download_list(frame, chunks[0], app);
     status_bar::render_status_bar(frame, chunks[1], app);
@@ -158,15 +152,23 @@ fn render_brand_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let brand = Line::from(vec![
         Span::styled(
             format!(" gosh v{} ", env!("CARGO_PKG_VERSION")),
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled("\u{2502} ", Style::default().fg(theme.surface2)),
         Span::styled(
-            format!("\u{2193} {}/s  ", crate::format::format_speed(app.download_speed)),
+            format!(
+                "\u{2193} {}/s  ",
+                crate::format::format_speed(app.download_speed)
+            ),
             Style::default().fg(theme.teal),
         ),
         Span::styled(
-            format!("\u{2191} {}/s  ", crate::format::format_speed(app.upload_speed)),
+            format!(
+                "\u{2191} {}/s  ",
+                crate::format::format_speed(app.upload_speed)
+            ),
             Style::default().fg(theme.peach),
         ),
         Span::styled(
@@ -179,7 +181,6 @@ fn render_brand_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
         area,
     );
 }
-
 
 fn render_search_bar(frame: &mut Frame, app: &TuiApp, search: &SearchState) {
     let theme = app.theme();

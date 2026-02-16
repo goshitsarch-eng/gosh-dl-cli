@@ -46,9 +46,15 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
                 Span::styled(" State: ", Style::default().fg(theme.overlay1)),
                 Span::styled(state, Style::default().fg(state_color)),
                 Span::styled("  \u{2502}  ", Style::default().fg(theme.surface2)),
-                Span::styled(format!("{:.1}%", dl.progress.percentage()), Style::default().fg(theme.text)),
+                Span::styled(
+                    format!("{:.1}%", dl.progress.percentage()),
+                    Style::default().fg(theme.text),
+                ),
                 Span::styled("  \u{2502}  ", Style::default().fg(theme.surface2)),
-                Span::styled(format!("{} / {}", completed, total), Style::default().fg(theme.subtext0)),
+                Span::styled(
+                    format!("{} / {}", completed, total),
+                    Style::default().fg(theme.subtext0),
+                ),
             ]),
             Line::from(vec![
                 Span::styled(" Speed: ", Style::default().fg(theme.overlay1)),
@@ -63,7 +69,8 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
                 ),
                 Span::styled("  \u{2502}  ", Style::default().fg(theme.surface2)),
                 Span::styled(
-                    format!("ETA: {}",
+                    format!(
+                        "ETA: {}",
                         dl.progress
                             .eta_seconds
                             .map(format_duration)
@@ -74,7 +81,10 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
             ]),
             Line::from(vec![
                 Span::styled(" Peers: ", Style::default().fg(theme.overlay1)),
-                Span::styled(format!("{}", dl.progress.connections), Style::default().fg(theme.text)),
+                Span::styled(
+                    format!("{}", dl.progress.connections),
+                    Style::default().fg(theme.text),
+                ),
                 Span::styled(" ", Style::default()),
                 Span::styled(quality.0, Style::default().fg(quality.1)),
                 Span::styled("  \u{2502}  ", Style::default().fg(theme.surface2)),
@@ -100,32 +110,28 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
             .split(detail_chunks[1]);
 
         // Download speed sparkline
-        let dl_label = Line::from(vec![
-            Span::styled(" Speed \u{2193} ", Style::default().fg(theme.teal).add_modifier(Modifier::BOLD)),
-        ]);
+        let dl_label = Line::from(vec![Span::styled(
+            " Speed \u{2193} ",
+            Style::default().fg(theme.teal).add_modifier(Modifier::BOLD),
+        )]);
         frame.render_widget(Paragraph::new(dl_label), spark_chunks[0]);
 
-        let dl_data: Vec<u64> = app
-            .speed_history
-            .iter()
-            .map(|(d, _)| *d)
-            .collect();
+        let dl_data: Vec<u64> = app.speed_history.iter().map(|(d, _)| *d).collect();
         let dl_sparkline = Sparkline::default()
             .data(&dl_data)
             .style(Style::default().fg(theme.teal).bg(theme.bg_dim));
         frame.render_widget(dl_sparkline, spark_chunks[1]);
 
         // Upload speed sparkline
-        let ul_label = Line::from(vec![
-            Span::styled(" Speed \u{2191} ", Style::default().fg(theme.peach).add_modifier(Modifier::BOLD)),
-        ]);
+        let ul_label = Line::from(vec![Span::styled(
+            " Speed \u{2191} ",
+            Style::default()
+                .fg(theme.peach)
+                .add_modifier(Modifier::BOLD),
+        )]);
         frame.render_widget(Paragraph::new(ul_label), spark_chunks[2]);
 
-        let ul_data: Vec<u64> = app
-            .speed_history
-            .iter()
-            .map(|(_, u)| *u)
-            .collect();
+        let ul_data: Vec<u64> = app.speed_history.iter().map(|(_, u)| *u).collect();
         let ul_sparkline = Sparkline::default()
             .data(&ul_data)
             .style(Style::default().fg(theme.peach).bg(theme.bg_dim));

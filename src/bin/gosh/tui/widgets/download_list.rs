@@ -18,11 +18,19 @@ pub fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     if app.downloads.is_empty() {
         let empty = vec![
             Line::from(""),
-            Line::from(Span::styled("No downloads yet", Style::default().fg(theme.overlay0))),
+            Line::from(Span::styled(
+                "No downloads yet",
+                Style::default().fg(theme.overlay0),
+            )),
             Line::from(""),
             Line::from(vec![
                 Span::styled("Press ", Style::default().fg(theme.overlay0)),
-                Span::styled(" a ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " a ",
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("to add a download", Style::default().fg(theme.overlay0)),
             ]),
         ];
@@ -58,8 +66,7 @@ pub fn render_download_list(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
 
     // Scrollbar
     if app.downloads.len() > visible_items {
-        let mut scrollbar_state = ScrollbarState::new(app.downloads.len())
-            .position(app.selected);
+        let mut scrollbar_state = ScrollbarState::new(app.downloads.len()).position(app.selected);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .style(Style::default().fg(theme.surface2));
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);

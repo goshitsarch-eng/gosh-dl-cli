@@ -45,7 +45,10 @@ pub fn render_activity_log(frame: &mut Frame, area: Rect, app: &TuiApp) {
             };
 
             Line::from(vec![
-                Span::styled(format!(" {} ", time_str), Style::default().fg(theme.overlay1)),
+                Span::styled(
+                    format!(" {} ", time_str),
+                    Style::default().fg(theme.overlay1),
+                ),
                 Span::styled(format!("{} ", icon), Style::default().fg(color)),
                 Span::styled(entry.message.clone(), Style::default().fg(theme.text)),
             ])
