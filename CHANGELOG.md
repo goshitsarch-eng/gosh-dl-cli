@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-03-07
+
+### Changed
+
+- Upgrade gosh-dl engine from 0.2.7 to 0.2.8
+- Upgrade tachyonfx from 0.22 to 0.25 (fixes CubicOut easing calculation)
+- Upgrade throbber-widgets-tui from 0.10 to 0.11
+- Upgrade toml from 0.9 to 1.0
+- Tighten clap version constraint from 4 to 4.5
+
 ## [0.2.6] - 2026-02-14
 
 ### Added
@@ -165,7 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.6...v0.2.8
 [0.2.6]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.2...v0.2.5
 [0.2.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.1.2...v0.2.2
