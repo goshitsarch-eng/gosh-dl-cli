@@ -1,4 +1,4 @@
-# gosh
+# gosh-dl-cli
 
 [![Crates.io](https://img.shields.io/crates/v/gosh-dl-cli)](https://crates.io/crates/gosh-dl-cli)
 [![docs.rs](https://img.shields.io/docsrs/gosh-dl-cli)](https://docs.rs/gosh-dl-cli)
