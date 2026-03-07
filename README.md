@@ -1,5 +1,9 @@
 # gosh
 
+[![Crates.io](https://img.shields.io/crates/v/gosh-dl-cli)](https://crates.io/crates/gosh-dl-cli)
+[![docs.rs](https://img.shields.io/docsrs/gosh-dl-cli)](https://docs.rs/gosh-dl-cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A download manager for the terminal. HTTP/HTTPS with multi-connection acceleration, full BitTorrent support, and an optional TUI. Built on [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
 
 ## Install
