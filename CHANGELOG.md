@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-08
+
+### Changed
+
+- Upgrade gosh-dl engine from 0.3.0 to 0.3.1
+- Align gosh-dl-cli crate version to 0.3.1
+
 ## [0.3.0] - 2026-03-08
 
 ### Changed
@@ -201,7 +208,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.9...v0.3.0
 [0.2.9]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.6...v0.2.8
