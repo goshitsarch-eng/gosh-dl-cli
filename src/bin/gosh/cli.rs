@@ -14,7 +14,7 @@ use std::path::PathBuf;
     Or pass URLs directly: gosh https://example.com/file.zip"
 )]
 pub struct Cli {
-    /// Config file path (default: ~/.config/gosh/config.toml)
+    /// Config file path (default: ~/.config/gosh-dl/config.toml)
     #[arg(short, long, global = true, env = "GOSH_CONFIG")]
     pub config: Option<PathBuf>,
 

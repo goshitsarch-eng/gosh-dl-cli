@@ -38,20 +38,15 @@ pub async fn execute(args: ListArgs, app: &App, output: OutputFormat) -> Result<
     // Print summary
     if matches!(output, OutputFormat::Table) {
         let stats = app.engine().global_stats();
-        println!();
-        println!(
-            "Total: {} downloads ({} active, {} waiting, {} stopped)",
+        for line in format_summary(
             downloads.len(),
             stats.num_active,
             stats.num_waiting,
-            stats.num_stopped
-        );
-        if stats.download_speed > 0 || stats.upload_speed > 0 {
-            println!(
-                "Speed: {}/s down, {}/s up",
-                format_speed(stats.download_speed),
-                format_speed(stats.upload_speed)
-            );
+            stats.num_stopped,
+            stats.download_speed,
+            stats.upload_speed,
+        ) {
+            println!("{line}");
         }
     }
 
@@ -80,4 +75,47 @@ fn filter_errors(downloads: &[DownloadStatus]) -> Vec<DownloadStatus> {
         .filter(|d| matches!(d.state, gosh_dl::DownloadState::Error { .. }))
         .cloned()
         .collect()
+}
+
+fn format_summary(
+    shown_count: usize,
+    active_count: usize,
+    waiting_count: usize,
+    stopped_count: usize,
+    download_speed: u64,
+    upload_speed: u64,
+) -> Vec<String> {
+    let mut lines = vec![
+        String::new(),
+        format!("Showing {} download(s)", shown_count),
+        format!(
+            "Global totals: {} active, {} waiting, {} stopped",
+            active_count, waiting_count, stopped_count
+        ),
+    ];
+
+    if download_speed > 0 || upload_speed > 0 {
+        lines.push(format!(
+            "Speed: {}/s down, {}/s up",
+            format_speed(download_speed),
+            format_speed(upload_speed)
+        ));
+    }
+
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_wording_separates_filtered_and_global_counts() {
+        let summary = format_summary(2, 5, 1, 9, 0, 0);
+
+        assert!(summary.iter().any(|line| line == "Showing 2 download(s)"));
+        assert!(summary
+            .iter()
+            .any(|line| line == "Global totals: 5 active, 1 waiting, 9 stopped"));
+    }
 }

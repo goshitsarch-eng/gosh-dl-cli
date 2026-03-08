@@ -14,7 +14,10 @@ use crate::app::App;
 use crate::config::CliConfig;
 use crate::format::{print_error, print_warning};
 use crate::input::url_parser::{parse_input, ParsedInput};
-use crate::util::{parse_checksum, parse_speed, sanitize_filename, truncate_str};
+use crate::util::{
+    parse_checksum, parse_selected_files, parse_speed, sanitize_filename, truncate_str,
+    validate_max_connections, validate_seed_ratio,
+};
 
 /// Options for direct download mode
 pub struct DirectOptions {
@@ -272,7 +275,7 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
         options.checksum = Some(parse_checksum(checksum)?);
     }
 
-    if let Some(max_conn) = opts.max_connections {
+    if let Some(max_conn) = validate_max_connections(opts.max_connections)? {
         options.max_connections = Some(max_conn);
     }
 
@@ -287,16 +290,10 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
         }
 
         if let Some(ref files) = opts.select_files {
-            let indices: Vec<usize> = files
-                .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect();
-            if !indices.is_empty() {
-                options.selected_files = Some(indices);
-            }
+            options.selected_files = Some(parse_selected_files(files)?);
         }
 
-        if let Some(ratio) = opts.seed_ratio {
+        if let Some(ratio) = validate_seed_ratio(opts.seed_ratio)? {
             options.seed_ratio = Some(ratio);
         }
     }

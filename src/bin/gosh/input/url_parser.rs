@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use std::path::PathBuf;
 
 /// Parsed input type
+#[derive(Debug)]
 pub enum ParsedInput {
     /// HTTP or HTTPS URL
     Http(String),
@@ -80,9 +81,10 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
         if input.ends_with(".torrent") || is_torrent_file(&path) {
             return Ok(ParsedInput::TorrentFile(path));
         }
-        // If it exists but isn't a torrent, try to use it as a URL list file?
-        // For now, assume it's a torrent file
-        return Ok(ParsedInput::TorrentFile(path));
+        bail!(
+            "Existing file is not a torrent file: {}. Use 'gosh add -i <file>' to read a URL list.",
+            path.display()
+        );
     }
 
     // If it looks like a path but doesn't exist
@@ -90,34 +92,8 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
         bail!("Torrent file not found: {}", input);
     }
 
-    // If it looks like a URL without protocol, assume HTTPS
-    // Require www. prefix or a dot followed by a known TLD-like pattern (not just "file.txt")
-    if input.starts_with("www.") {
+    if looks_like_implicit_url(input) {
         return Ok(ParsedInput::Http(format!("https://{}", input)));
-    }
-
-    // Only treat as URL if it contains a slash (path component) with a dot (domain),
-    // or has a dot with no file extension pattern (e.g., "example.com" but not "file.txt")
-    if input.contains('/') && input.contains('.') {
-        return Ok(ParsedInput::Http(format!("https://{}", input)));
-    }
-
-    // Bare domain-like input: require at least two dot-separated parts where the
-    // last part is longer than typical file extensions (>= 2 chars and not a common extension)
-    if input.contains('.') && !input.contains('/') {
-        let parts: Vec<&str> = input.split('.').collect();
-        if parts.len() >= 2 {
-            let last = parts.last().unwrap();
-            // Common file extensions to reject as bare URLs
-            let file_extensions = [
-                "txt", "log", "csv", "json", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf",
-                "md", "rst", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "pdf", "doc", "docx",
-                "rs", "py", "js", "ts", "go", "c", "h", "cpp", "java", "rb", "sh", "bat",
-            ];
-            if !file_extensions.contains(&last.to_lowercase().as_str()) {
-                return Ok(ParsedInput::Http(format!("https://{}", input)));
-            }
-        }
     }
 
     bail!(
@@ -125,6 +101,61 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
          Use http(s)://... for URLs, magnet:... for magnet links, or a path to a .torrent file.",
         input
     )
+}
+
+fn looks_like_implicit_url(input: &str) -> bool {
+    if looks_like_local_path(input) {
+        return false;
+    }
+
+    let host_and_path = input
+        .split_once('/')
+        .map(|(host, _)| host)
+        .unwrap_or(input);
+    let host = host_and_path
+        .split_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(host_and_path);
+
+    if host.is_empty() || !host.contains('.') || host.starts_with('.') || host.ends_with('.') {
+        return false;
+    }
+
+    if !host
+        .split('.')
+        .all(|label| !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+    {
+        return false;
+    }
+
+    let last = host.rsplit('.').next().unwrap().to_ascii_lowercase();
+    !common_file_extensions().contains(&last.as_str())
+}
+
+fn looks_like_local_path(input: &str) -> bool {
+    input.starts_with("./")
+        || input.starts_with("../")
+        || input.starts_with('/')
+        || input.starts_with("~/")
+        || input.starts_with(".\\")
+        || input.starts_with("..\\")
+        || looks_like_windows_absolute_path(input)
+}
+
+fn looks_like_windows_absolute_path(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+}
+
+fn common_file_extensions() -> &'static [&'static str] {
+    &[
+        "txt", "log", "csv", "json", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf", "md",
+        "rst", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "pdf", "doc", "docx", "rs", "py",
+        "js", "ts", "go", "c", "h", "cpp", "java", "rb", "sh", "bat",
+    ]
 }
 
 /// Check if a file is likely a torrent file by reading magic bytes
@@ -145,6 +176,7 @@ fn is_torrent_file(path: &PathBuf) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::{Builder, NamedTempFile};
 
     #[test]
     fn test_parse_http_url() {
@@ -165,6 +197,41 @@ mod tests {
             assert!(url.starts_with("https://"));
         } else {
             panic!("Expected HTTP");
+        }
+    }
+
+    #[test]
+    fn test_parse_host_with_path() {
+        let result = parse_input("example.com/file.zip").unwrap();
+        assert!(matches!(result, ParsedInput::Http(_)));
+    }
+
+    #[test]
+    fn test_parse_existing_non_torrent_file_errors() {
+        let file = NamedTempFile::new().unwrap();
+        let err = parse_input(file.path().to_str().unwrap()).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Existing file is not a torrent file"));
+    }
+
+    #[test]
+    fn test_parse_existing_torrent_file_is_accepted() {
+        let file = Builder::new().suffix(".torrent").tempfile().unwrap();
+        let result = parse_input(file.path().to_str().unwrap()).unwrap();
+        assert!(matches!(result, ParsedInput::TorrentFile(_)));
+    }
+
+    #[test]
+    fn test_parse_missing_torrent_file_errors() {
+        let err = parse_input("missing.torrent").unwrap_err();
+        assert!(err.to_string().contains("Torrent file not found"));
+    }
+
+    #[test]
+    fn test_parse_path_like_inputs_are_not_urls() {
+        for input in ["./foo.bar", "../foo.bar", "/tmp/foo.bar", "~/foo.bar"] {
+            assert!(parse_input(input).is_err(), "expected '{input}' to be rejected");
         }
     }
 }

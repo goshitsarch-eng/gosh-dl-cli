@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-03-08
+
+### Changed
+
+- Upgrade gosh-dl engine from 0.2.8 to 0.2.9
+- Align gosh-dl-cli crate version to 0.2.9
+- Validate runtime configuration after environment and CLI overrides are applied
+- `gosh list` table summary now separates filtered rows from global totals
+- Correct the documented default config path in CLI help to `~/.config/gosh-dl/config.toml`
+
+### Fixed
+
+- Make `NO_COLOR` and `--color auto|always|never` deterministic by replacing one-shot color state initialization
+- Reject invalid `--max-connections 0`, malformed `--select-files`, and negative `--seed-ratio` values in both direct mode and `gosh add`
+- Reject existing non-torrent files passed as positional inputs instead of misclassifying them as torrent files
+- Tighten implicit URL detection so obvious local paths like `./foo.bar` and `/tmp/foo.bar` are not treated as URLs
+- Add `config get/set` support for documented scalar keys: `general.log_file`, `engine.proxy_url`, `engine.connect_timeout`, `engine.read_timeout`, `engine.max_retries`, and `engine.accept_invalid_certs`
+- Support `unset` for optional config values in `config set`
+
 ## [0.2.8] - 2026-03-07
 
 ### Changed
@@ -175,7 +194,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.6...v0.2.8
 [0.2.6]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.2.2...v0.2.5

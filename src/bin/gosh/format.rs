@@ -1,21 +1,30 @@
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use gosh_dl::DownloadState;
 
 use crate::util::truncate_str;
 
-static COLOR_ENABLED: OnceLock<bool> = OnceLock::new();
+const COLOR_AUTO: u8 = 0;
+const COLOR_ENABLED: u8 = 1;
+const COLOR_DISABLED: u8 = 2;
+
+static COLOR_MODE: AtomicU8 = AtomicU8::new(COLOR_AUTO);
 
 pub fn init_color(force: Option<bool>) {
-    let enabled = match force {
-        Some(v) => v,
-        None => std::env::var_os("NO_COLOR").is_none(),
+    let mode = match force {
+        Some(true) => COLOR_ENABLED,
+        Some(false) => COLOR_DISABLED,
+        None => COLOR_AUTO,
     };
-    COLOR_ENABLED.set(enabled).ok();
+    COLOR_MODE.store(mode, Ordering::Relaxed);
 }
 
 pub fn color_enabled() -> bool {
-    *COLOR_ENABLED.get().unwrap_or(&true)
+    match COLOR_MODE.load(Ordering::Relaxed) {
+        COLOR_ENABLED => true,
+        COLOR_DISABLED => false,
+        _ => std::env::var_os("NO_COLOR").is_none(),
+    }
 }
 
 pub fn print_error(msg: &str) {
@@ -98,6 +107,12 @@ pub fn format_state(state: &DownloadState) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn test_format_speed_zero() {
@@ -168,9 +183,32 @@ mod tests {
     }
 
     #[test]
-    fn test_color_init_no_color() {
-        // This test verifies init_color logic without calling it
-        // (OnceLock can only be set once per process)
-        assert!(std::env::var_os("NO_COLOR").is_none() || !color_enabled());
+    fn test_color_forced_modes() {
+        let _guard = env_lock();
+        unsafe {
+            std::env::remove_var("NO_COLOR");
+        }
+
+        init_color(Some(true));
+        assert!(color_enabled());
+
+        init_color(Some(false));
+        assert!(!color_enabled());
+    }
+
+    #[test]
+    fn test_color_auto_honors_no_color() {
+        let _guard = env_lock();
+        unsafe {
+            std::env::set_var("NO_COLOR", "1");
+        }
+        init_color(None);
+        assert!(!color_enabled());
+
+        unsafe {
+            std::env::remove_var("NO_COLOR");
+        }
+        init_color(None);
+        assert!(color_enabled());
     }
 }

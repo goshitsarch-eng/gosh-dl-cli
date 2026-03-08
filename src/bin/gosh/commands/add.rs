@@ -11,7 +11,10 @@ use crate::app::App;
 use crate::cli::{AddArgs, OutputFormat};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::output::table::print_add_results;
-use crate::util::{parse_checksum, parse_speed, sanitize_filename, truncate_str};
+use crate::util::{
+    parse_checksum, parse_selected_files, parse_speed, sanitize_filename, truncate_str,
+    validate_max_connections, validate_seed_ratio,
+};
 
 #[derive(Serialize)]
 pub struct AddResult {
@@ -172,7 +175,7 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
         options.checksum = Some(parse_checksum(checksum)?);
     }
 
-    if let Some(max_conn) = args.max_connections {
+    if let Some(max_conn) = validate_max_connections(args.max_connections)? {
         options.max_connections = Some(max_conn);
     }
 
@@ -187,16 +190,10 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
         }
 
         if let Some(ref files) = args.select_files {
-            let indices: Vec<usize> = files
-                .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect();
-            if !indices.is_empty() {
-                options.selected_files = Some(indices);
-            }
+            options.selected_files = Some(parse_selected_files(files)?);
         }
 
-        if let Some(ratio) = args.seed_ratio {
+        if let Some(ratio) = validate_seed_ratio(args.seed_ratio)? {
             options.seed_ratio = Some(ratio);
         }
     }

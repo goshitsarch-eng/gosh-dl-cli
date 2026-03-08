@@ -119,6 +119,45 @@ pub fn parse_speed(s: &str) -> Result<u64> {
     }
 }
 
+/// Parse a comma-separated file index list into a non-empty vector.
+pub fn parse_selected_files(s: &str) -> Result<Vec<usize>> {
+    let mut indices = Vec::new();
+
+    for token in s.split(',') {
+        let token = token.trim();
+        if token.is_empty() {
+            bail!("--select-files must contain comma-separated file indices");
+        }
+
+        let index = token.parse::<usize>().map_err(|_| {
+            anyhow::anyhow!("Invalid file index '{}'. --select-files expects integers.", token)
+        })?;
+        indices.push(index);
+    }
+
+    if indices.is_empty() {
+        bail!("--select-files must contain at least one file index");
+    }
+
+    Ok(indices)
+}
+
+/// Validate an optional max-connections override.
+pub fn validate_max_connections(max_connections: Option<usize>) -> Result<Option<usize>> {
+    match max_connections {
+        Some(0) => bail!("--max-connections must be at least 1"),
+        other => Ok(other),
+    }
+}
+
+/// Validate an optional seed ratio override.
+pub fn validate_seed_ratio(seed_ratio: Option<f64>) -> Result<Option<f64>> {
+    match seed_ratio {
+        Some(ratio) if ratio < 0.0 => bail!("--seed-ratio must not be negative"),
+        other => Ok(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +243,29 @@ mod tests {
     #[test]
     fn test_parse_speed_invalid() {
         assert!(parse_speed("abc").is_err());
+    }
+
+    #[test]
+    fn test_parse_selected_files() {
+        assert_eq!(parse_selected_files("1, 2,3").unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_parse_selected_files_invalid() {
+        assert!(parse_selected_files("1,a,3").is_err());
+        assert!(parse_selected_files("").is_err());
+        assert!(parse_selected_files("1,,3").is_err());
+    }
+
+    #[test]
+    fn test_validate_max_connections() {
+        assert_eq!(validate_max_connections(Some(4)).unwrap(), Some(4));
+        assert!(validate_max_connections(Some(0)).is_err());
+    }
+
+    #[test]
+    fn test_validate_seed_ratio() {
+        assert_eq!(validate_seed_ratio(Some(1.5)).unwrap(), Some(1.5));
+        assert!(validate_seed_ratio(Some(-1.0)).is_err());
     }
 }

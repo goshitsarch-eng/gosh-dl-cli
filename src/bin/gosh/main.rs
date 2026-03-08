@@ -53,36 +53,9 @@ async fn run() -> Result<i32> {
     // Setup logging based on verbosity
     setup_logging(cli.verbose, cli.quiet)?;
 
-    // Load config file
-    let mut config = config::CliConfig::load(cli.config.as_deref())?;
+    let config = load_runtime_config(&cli)?;
 
-    // Validate configuration values
-    config.validate()?;
-
-    // Apply environment variable overrides first
-    config.apply_env_overrides();
-
-    // Apply CLI overrides to config (CLI takes precedence)
-    if cli.no_dht {
-        config.engine.enable_dht = false;
-    }
-    if cli.no_pex {
-        config.engine.enable_pex = false;
-    }
-    if cli.no_lpd {
-        config.engine.enable_lpd = false;
-    }
-    if let Some(n) = cli.max_peers {
-        config.engine.max_peers = n;
-    }
-    if let Some(r) = cli.max_retries {
-        config.engine.max_retries = r;
-    }
-    if let Some(ref proxy) = cli.proxy {
-        config.engine.proxy_url = Some(proxy.clone());
-    }
     if cli.insecure {
-        config.engine.accept_invalid_certs = true;
         format::print_warning("TLS certificate verification disabled");
     }
 
@@ -121,6 +94,38 @@ async fn run() -> Result<i32> {
             format::print_error("TUI not available. Pass URLs to download directly.");
             Ok(1)
         }
+    }
+}
+
+fn load_runtime_config(cli: &Cli) -> Result<config::CliConfig> {
+    let mut config = config::CliConfig::load(cli.config.as_deref())?;
+    config.apply_env_overrides();
+    apply_cli_overrides(&mut config, cli);
+    config.validate()?;
+    Ok(config)
+}
+
+fn apply_cli_overrides(config: &mut config::CliConfig, cli: &Cli) {
+    if cli.no_dht {
+        config.engine.enable_dht = false;
+    }
+    if cli.no_pex {
+        config.engine.enable_pex = false;
+    }
+    if cli.no_lpd {
+        config.engine.enable_lpd = false;
+    }
+    if let Some(n) = cli.max_peers {
+        config.engine.max_peers = n;
+    }
+    if let Some(r) = cli.max_retries {
+        config.engine.max_retries = r;
+    }
+    if let Some(ref proxy) = cli.proxy {
+        config.engine.proxy_url = Some(proxy.clone());
+    }
+    if cli.insecure {
+        config.engine.accept_invalid_certs = true;
     }
 }
 
@@ -176,4 +181,82 @@ async fn run_command(
 async fn run_tui(config: config::CliConfig) -> Result<()> {
     let mut tui_app = tui::TuiApp::new(config).await?;
     tui_app.run().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::TempDir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[test]
+    fn runtime_config_applies_env_and_cli_overrides_before_validation() {
+        let _guard = env_lock();
+        let tempdir = TempDir::new().unwrap();
+        let config_path = tempdir.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            "[engine]\nmax_peers = 5\n",
+        )
+        .unwrap();
+
+        unsafe {
+            std::env::set_var("HTTPS_PROXY", "http://env-proxy:8080");
+        }
+
+        let cli = Cli::try_parse_from([
+            "gosh",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--proxy",
+            "http://cli-proxy:8080",
+            "--max-retries",
+            "9",
+            "--max-peers",
+            "7",
+            "--no-dht",
+            "--no-pex",
+            "--no-lpd",
+            "--color",
+            "never",
+            "completions",
+            "bash",
+        ])
+        .unwrap();
+
+        let config = load_runtime_config(&cli).unwrap();
+
+        assert_eq!(config.engine.proxy_url.as_deref(), Some("http://cli-proxy:8080"));
+        assert_eq!(config.engine.max_retries, 9);
+        assert_eq!(config.engine.max_peers, 7);
+        assert!(!config.engine.enable_dht);
+        assert!(!config.engine.enable_pex);
+        assert!(!config.engine.enable_lpd);
+
+        unsafe {
+            std::env::remove_var("HTTPS_PROXY");
+        }
+    }
+
+    #[test]
+    fn runtime_config_rejects_invalid_cli_override_values() {
+        let cli = Cli::try_parse_from([
+            "gosh",
+            "--max-peers",
+            "0",
+            "--color",
+            "never",
+            "completions",
+            "bash",
+        ])
+        .unwrap();
+
+        let err = load_runtime_config(&cli).unwrap_err();
+        assert!(err.to_string().contains("engine.max_peers must be at least 1"));
+    }
 }

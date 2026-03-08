@@ -209,6 +209,15 @@ impl CliConfig {
         if self.engine.max_connections_per_download == 0 {
             anyhow::bail!("engine.max_connections_per_download must be at least 1");
         }
+        if self.engine.max_peers == 0 {
+            anyhow::bail!("engine.max_peers must be at least 1");
+        }
+        if self.engine.connect_timeout == 0 {
+            anyhow::bail!("engine.connect_timeout must be at least 1");
+        }
+        if self.engine.read_timeout == 0 {
+            anyhow::bail!("engine.read_timeout must be at least 1");
+        }
         if self.tui.refresh_rate_ms == 0 {
             anyhow::bail!("tui.refresh_rate_ms must be at least 1");
         }
