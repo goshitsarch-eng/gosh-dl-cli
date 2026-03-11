@@ -1,31 +1,31 @@
-# Maintainer: USERNAME <EMAIL>
+# Maintainer: goshitsarch <goshitsarch@proton.me>
 pkgname=gosh
-pkgver=VERSION
+pkgver=0.3.2
 pkgrel=1
 pkgdesc='Fast download manager with HTTP and BitTorrent support'
 arch=('x86_64' 'aarch64')
-url='https://github.com/USERNAME/gosh-dl-cli'
+url='https://github.com/goshitsarch-eng/gosh-dl-cli'
 license=('MIT')
 depends=('gcc-libs')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('CHECKSUM')
+sha256sums=('e16d4c7c2fbd695f2730785645164797a69b3f7d78a98339e67979a89c3072f6')
 
 prepare() {
-  cd "$pkgname-$pkgver"
+  cd "gosh-dl-cli-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
 }
 
 build() {
-  cd "$pkgname-$pkgver"
+  cd "gosh-dl-cli-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo build --frozen --release
 }
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "gosh-dl-cli-$pkgver"
   install -Dm0755 "target/release/gosh" "$pkgdir/usr/bin/gosh"
   install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
