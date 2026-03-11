@@ -23,6 +23,12 @@ From crates.io:
 cargo install gosh-dl-cli
 ```
 
+Arch Linux (AUR):
+
+```bash
+yay -S gosh-dl-cli
+```
+
 Without the TUI (smaller binary, fewer dependencies):
 
 ```bash
