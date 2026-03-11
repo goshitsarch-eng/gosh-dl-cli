@@ -1,5 +1,5 @@
 # Maintainer: goshitsarch <goshitsarch@proton.me>
-pkgname=gosh
+pkgname=gosh-dl-cli
 pkgver=0.3.2
 pkgrel=1
 pkgdesc='Fast download manager with HTTP and BitTorrent support'
