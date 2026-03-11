@@ -1196,9 +1196,9 @@ dependencies = [
 
 [[package]]
 name = "gosh-dl"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4005fdae13d1825f0dad0004cb3efb9d237d48dcd775346ad6435cb216772f9"
+checksum = "bbbc487764359ccb8549b226c273d1eafb9b3c629f2191acadb65a340471032e"
 dependencies = [
  "async-trait",
  "base64",
@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "gosh-dl-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
