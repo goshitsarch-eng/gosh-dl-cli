@@ -6,6 +6,10 @@
 
 A download manager for the terminal. HTTP/HTTPS with multi-connection acceleration, full BitTorrent support, and an optional TUI. Built on [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
 
+## Screenshots
+
+![Screenshot 1](screenshots/img1.png)
+
 ## Install
 
 From source (requires Rust 1.85+):
