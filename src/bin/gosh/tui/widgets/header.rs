@@ -7,12 +7,15 @@ use crate::tui::app::{TuiApp, ViewMode};
 pub fn render_header(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
 
-    let speed_str = format!(
+    let mut speed_str = format!(
         " \u{2193} {}  \u{2191} {}  \u{2502}  {} downloads ",
         format_speed(app.download_speed),
         format_speed(app.upload_speed),
         app.downloads.len()
     );
+    if let Some(indicator) = crate::tui::ui::mirror_indicator(app) {
+        speed_str = format!(" {indicator} \u{2502} {}", speed_str.trim_start());
+    }
 
     let block = btop_block(
         &format!("gosh v{}", env!("CARGO_PKG_VERSION")),

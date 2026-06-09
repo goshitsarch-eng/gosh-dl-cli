@@ -4,9 +4,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use gosh_dl::DownloadEngine;
-use gosh_dl::{DownloadEvent, DownloadState, DownloadStatus};
+use gosh_dl::{
+    BatchResult, DownloadEvent, DownloadState, DownloadStatus, RecursiveJobEvent,
+    RecursiveJobState, RecursiveJobStatus,
+};
 use ratatui::prelude::*;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, Stdout};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -111,6 +114,13 @@ pub struct TuiApp {
     /// Scroll offset for activity log
     pub activity_log_scroll: usize,
 
+    /// Active recursive mirror jobs, keyed by tracked job ID
+    pub recursive_jobs: HashMap<uuid::Uuid, RecursiveJobStatus>,
+
+    /// Set when state changed without an immediate redraw; flushed on the
+    /// next tick so engine-event floods coalesce into the tick cadence
+    dirty: bool,
+
     /// Should quit
     should_quit: bool,
 }
@@ -146,6 +156,7 @@ pub enum DialogState {
         id: gosh_dl::DownloadId,
         delete_files: bool,
     },
+    ConfirmCancelAll,
     Error {
         message: String,
     },
@@ -187,6 +198,9 @@ pub struct SearchState {
     pub query: String,
     pub cursor: usize,
     pub scope: SearchScope,
+    /// True while the search bar is capturing keystrokes; false once the
+    /// filter is committed with Enter (filter stays active, keys fall through)
+    pub input_active: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +217,7 @@ impl Default for SearchState {
             query: String::new(),
             cursor: 0,
             scope: SearchScope::All,
+            input_active: true,
         }
     }
 }
@@ -263,13 +278,7 @@ pub enum ToastLevel {
 
 impl TuiApp {
     pub async fn new(config: CliConfig) -> Result<Self> {
-        // Ensure database directory exists
-        if let Some(parent) = config.general.database_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let engine_config = config.to_engine_config();
-        let engine = DownloadEngine::new(engine_config).await?;
+        let engine = crate::app::create_engine(&config).await?;
 
         // Get initial download list
         let downloads = engine.list();
@@ -317,6 +326,8 @@ impl TuiApp {
             activity_log: VecDeque::new(),
             show_activity_log: false,
             activity_log_scroll: 0,
+            recursive_jobs: HashMap::new(),
+            dirty: false,
             should_quit: false,
         })
     }
@@ -373,40 +384,68 @@ impl TuiApp {
 
         // Create event handler
         let tick_rate = Duration::from_millis(self.config.tui.refresh_rate_ms);
-        let mut event_handler = EventHandler::new(self.engine.subscribe(), tick_rate);
+        let mut event_handler = EventHandler::new(
+            self.engine.subscribe(),
+            self.engine.subscribe_recursive_jobs(),
+            tick_rate,
+        );
 
-        // Main loop
+        // Seed mirror job state from the engine
+        for job in self.engine.list_recursive_jobs() {
+            let status = self.engine.recursive_job_status(&job.as_job());
+            self.recursive_jobs.insert(job.id, status);
+        }
+
+        // Initial frame
+        terminal.draw(|frame| ui::render(frame, self))?;
+
+        // Main loop. Engine events only mark state dirty; the actual redraw
+        // happens on the next tick (or input event), so progress-event floods
+        // cost at most one draw per refresh interval.
         loop {
-            // Draw UI
-            terminal.draw(|frame| ui::render(frame, self))?;
+            let mut draw = false;
 
-            // Handle events
             match event_handler.next().await? {
                 AppEvent::Terminal(event) => {
                     if self.handle_terminal_event(&event).await? {
                         break;
                     }
+                    // Input latency matters: draw immediately
+                    draw = true;
                 }
                 AppEvent::Engine(event) => {
                     self.handle_engine_event(event);
+                    self.dirty = true;
+                }
+                AppEvent::RecursiveJob(event) => {
+                    self.handle_recursive_event(event);
+                    self.dirty = true;
                 }
                 AppEvent::Tick => {
                     self.update_stats();
+                    draw = true;
                 }
                 AppEvent::Resync => {
                     // Full resync after missed broadcast events
                     self.refresh_downloads();
                     self.update_stats();
+                    draw = true;
                 }
                 AppEvent::Resize(w, h) => {
                     self.terminal_width = w;
                     self.terminal_height = h;
                     self.detect_layout_mode();
+                    draw = true;
                 }
             }
 
             if self.should_quit {
                 break;
+            }
+
+            if draw || self.dirty {
+                self.dirty = false;
+                terminal.draw(|frame| ui::render(frame, self))?;
             }
         }
 
@@ -464,10 +503,8 @@ impl TuiApp {
                                     *cursor -= 1;
                                 }
                             }
-                            crossterm::event::KeyCode::Right => {
-                                if *cursor < input.chars().count() {
-                                    *cursor += 1;
-                                }
+                            crossterm::event::KeyCode::Right if *cursor < input.chars().count() => {
+                                *cursor += 1;
                             }
                             _ => {}
                         }
@@ -486,6 +523,16 @@ impl TuiApp {
                                 message: e.to_string(),
                             });
                         }
+                    }
+                    return Ok(false);
+                }
+                DialogState::ConfirmCancelAll => {
+                    if event::is_escape(event) || event::is_key(event, 'n') {
+                        self.dialog = None;
+                    } else if event::is_key(event, 'y') || event::is_enter(event) {
+                        self.dialog = None;
+                        let result = self.engine.cancel_all(false).await;
+                        self.report_batch("Cancelled", &result);
                     }
                     return Ok(false);
                 }
@@ -539,16 +586,25 @@ impl TuiApp {
                                 crossterm::event::KeyCode::Esc => {
                                     if *dirty {
                                         let new_config = *draft.clone();
-                                        if new_config.validate().is_ok() {
-                                            let _ = new_config.save(None);
-                                            self.config = new_config;
-                                            let engine_cfg = self.config.to_engine_config();
-                                            let _ = self.engine.set_config(engine_cfg);
-                                            self.theme = Theme::from_name(&self.config.tui.theme);
-                                            self.push_toast(
-                                                "Settings saved".to_string(),
-                                                ToastLevel::Success,
-                                            );
+                                        match new_config.validate() {
+                                            Ok(()) => {
+                                                let _ = new_config.save(None);
+                                                self.config = new_config;
+                                                let engine_cfg = self.config.to_engine_config();
+                                                let _ = self.engine.set_config(engine_cfg);
+                                                self.theme =
+                                                    Theme::from_name(&self.config.tui.theme);
+                                                self.push_toast(
+                                                    "Settings saved".to_string(),
+                                                    ToastLevel::Success,
+                                                );
+                                            }
+                                            Err(e) => {
+                                                self.push_toast(
+                                                    format!("Settings discarded: {e}"),
+                                                    ToastLevel::Error,
+                                                );
+                                            }
                                         }
                                     }
                                     self.dialog = None;
@@ -573,7 +629,9 @@ impl TuiApp {
                                 }
                                 crossterm::event::KeyCode::Down
                                 | crossterm::event::KeyCode::Char('j') => {
-                                    *selected_row += 1;
+                                    let max_row =
+                                        Self::settings_row_count(*active_tab).saturating_sub(1);
+                                    *selected_row = (*selected_row + 1).min(max_row);
                                 }
                                 crossterm::event::KeyCode::Char(n @ '1'..='5') => {
                                     *active_tab = (n as usize) - ('1' as usize);
@@ -780,51 +838,72 @@ impl TuiApp {
             return Ok(false);
         }
 
-        // Handle search input mode
-        if let Some(ref mut search) = self.search {
+        // Handle search input mode (only while the bar is capturing keys —
+        // a committed filter releases the keyboard back to normal bindings)
+        if self.search.as_ref().is_some_and(|s| s.input_active) {
             if let crossterm::event::Event::Key(key) = event {
-                match key.code {
-                    crossterm::event::KeyCode::Esc => {
-                        self.search = None;
-                        return Ok(false);
-                    }
-                    crossterm::event::KeyCode::Enter => {
-                        if search.query.is_empty() {
-                            self.search = None;
+                let mut changed = false;
+                let mut close = false;
+                let mut handled = true;
+                if let Some(ref mut search) = self.search {
+                    match key.code {
+                        crossterm::event::KeyCode::Esc => {
+                            close = true;
+                            changed = true;
                         }
-                        return Ok(false);
-                    }
-                    crossterm::event::KeyCode::Char(c) => {
-                        if key.modifiers == crossterm::event::KeyModifiers::CONTROL && c == 's' {
-                            search.scope = search.scope.next();
-                        } else if key.modifiers == crossterm::event::KeyModifiers::NONE
-                            || key.modifiers == crossterm::event::KeyModifiers::SHIFT
-                        {
-                            let byte_pos = search
-                                .query
-                                .char_indices()
-                                .nth(search.cursor)
-                                .map(|(i, _)| i)
-                                .unwrap_or(search.query.len());
-                            search.query.insert(byte_pos, c);
-                            search.cursor += 1;
+                        crossterm::event::KeyCode::Enter => {
+                            if search.query.is_empty() {
+                                close = true;
+                            } else {
+                                // Commit: filter stays active, keys fall through
+                                search.input_active = false;
+                            }
                         }
-                        return Ok(false);
-                    }
-                    crossterm::event::KeyCode::Backspace => {
-                        if search.cursor > 0 {
-                            search.cursor -= 1;
-                            let byte_pos = search
-                                .query
-                                .char_indices()
-                                .nth(search.cursor)
-                                .map(|(i, _)| i)
-                                .unwrap_or(search.query.len());
-                            search.query.remove(byte_pos);
+                        crossterm::event::KeyCode::Char(c) => {
+                            if key.modifiers == crossterm::event::KeyModifiers::CONTROL && c == 's'
+                            {
+                                search.scope = search.scope.next();
+                                changed = true;
+                            } else if key.modifiers == crossterm::event::KeyModifiers::NONE
+                                || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                            {
+                                let byte_pos = search
+                                    .query
+                                    .char_indices()
+                                    .nth(search.cursor)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(search.query.len());
+                                search.query.insert(byte_pos, c);
+                                search.cursor += 1;
+                                changed = true;
+                            } else {
+                                handled = false;
+                            }
                         }
-                        return Ok(false);
+                        crossterm::event::KeyCode::Backspace => {
+                            if search.cursor > 0 {
+                                search.cursor -= 1;
+                                let byte_pos = search
+                                    .query
+                                    .char_indices()
+                                    .nth(search.cursor)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(search.query.len());
+                                search.query.remove(byte_pos);
+                                changed = true;
+                            }
+                        }
+                        _ => handled = false,
                     }
-                    _ => {}
+                }
+                if close {
+                    self.search = None;
+                }
+                if changed {
+                    self.refresh_downloads();
+                }
+                if handled {
+                    return Ok(false);
                 }
             }
         }
@@ -832,6 +911,13 @@ impl TuiApp {
         // Handle global keys
         if event::is_ctrl_c(event) || event::is_key(event, 'q') {
             return Ok(true); // Quit
+        }
+
+        // Esc clears a committed search filter
+        if event::is_escape(event) && self.search.is_some() {
+            self.search = None;
+            self.refresh_downloads();
+            return Ok(false);
         }
 
         if event::is_key(event, '?') {
@@ -898,14 +984,39 @@ impl TuiApp {
             };
         }
 
+        // Batch operations
+        if event::is_upper_key(event, 'P') {
+            let result = self.engine.pause_all().await;
+            self.report_batch("Paused", &result);
+        } else if event::is_upper_key(event, 'R') {
+            let result = self.engine.resume_all().await;
+            self.report_batch("Resumed", &result);
+        } else if event::is_upper_key(event, 'C') && !self.downloads.is_empty() {
+            self.dialog = Some(DialogState::ConfirmCancelAll);
+        }
+
         // Toggle activity log
         if event::is_upper_key(event, 'L') {
             self.show_activity_log = !self.show_activity_log;
+            self.activity_log_scroll = 0;
         }
 
-        // Search
+        // Scroll activity log ([ = older, ] = newer)
+        if event::is_key(event, '[') {
+            if self.show_activity_log {
+                self.activity_log_scroll =
+                    (self.activity_log_scroll + 1).min(self.activity_log.len().saturating_sub(1));
+            }
+        } else if event::is_key(event, ']') {
+            self.activity_log_scroll = self.activity_log_scroll.saturating_sub(1);
+        }
+
+        // Search: open the bar, or re-edit a committed filter
         if event::is_key(event, '/') {
-            self.search = Some(SearchState::default());
+            match self.search.as_mut() {
+                Some(s) => s.input_active = true,
+                None => self.search = Some(SearchState::default()),
+            }
         }
 
         // Settings (Shift+S)
@@ -943,8 +1054,12 @@ impl TuiApp {
     /// Handle engine events
     fn handle_engine_event(&mut self, event: DownloadEvent) {
         match event {
-            DownloadEvent::Added { .. } | DownloadEvent::Removed { .. } => {
+            DownloadEvent::Added { .. } => {
                 self.push_activity(ActivityLevel::Info, "Download added".to_string());
+                self.refresh_downloads();
+            }
+            DownloadEvent::Removed { .. } => {
+                self.push_activity(ActivityLevel::Info, "Download removed".to_string());
                 self.refresh_downloads();
             }
             DownloadEvent::Completed { id } => {
@@ -1004,6 +1119,78 @@ impl TuiApp {
             }
             _ => {}
         }
+    }
+
+    /// Handle recursive mirror job events
+    fn handle_recursive_event(&mut self, event: RecursiveJobEvent) {
+        match event {
+            RecursiveJobEvent::Added { job, status } => {
+                self.push_activity(
+                    ActivityLevel::Info,
+                    format!("Mirror started: {}", truncate_str(&job.root_url, 50)),
+                );
+                self.recursive_jobs.insert(job.id, status);
+            }
+            RecursiveJobEvent::Updated { job, status } => {
+                let prev_state = self.recursive_jobs.get(&job.id).map(|s| s.state);
+                if prev_state != Some(status.state) {
+                    match status.state {
+                        RecursiveJobState::Completed => {
+                            self.push_toast(
+                                format!(
+                                    "Mirror complete ({} files)",
+                                    status.progress.total_children
+                                ),
+                                ToastLevel::Success,
+                            );
+                            self.push_activity(
+                                ActivityLevel::Success,
+                                format!("Mirror complete: {}", truncate_str(&job.root_url, 50)),
+                            );
+                        }
+                        RecursiveJobState::Failed => {
+                            self.push_activity(
+                                ActivityLevel::Error,
+                                format!("Mirror failed: {}", truncate_str(&job.root_url, 50)),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                self.recursive_jobs.insert(job.id, status);
+            }
+            RecursiveJobEvent::Removed { id } => {
+                self.recursive_jobs.remove(&id);
+            }
+        }
+    }
+
+    /// Report a batch-operation outcome as a toast + activity entry
+    fn report_batch(&mut self, verb: &str, result: &BatchResult) {
+        if result.succeeded.is_empty() && result.skipped.is_empty() && result.failed.is_empty() {
+            self.push_toast("No downloads to act on".to_string(), ToastLevel::Success);
+            return;
+        }
+        let mut msg = format!("{} {}", verb, result.succeeded.len());
+        if !result.skipped.is_empty() {
+            msg.push_str(&format!(", skipped {}", result.skipped.len()));
+        }
+        if !result.failed.is_empty() {
+            msg.push_str(&format!(", failed {}", result.failed.len()));
+        }
+        let level = if result.failed.is_empty() {
+            ToastLevel::Success
+        } else {
+            ToastLevel::Error
+        };
+        self.push_toast(msg.clone(), level);
+        let activity_level = if result.failed.is_empty() {
+            ActivityLevel::Info
+        } else {
+            ActivityLevel::Error
+        };
+        self.push_activity(activity_level, msg);
+        self.refresh_downloads();
     }
 
     /// Update global stats
@@ -1102,6 +1289,9 @@ impl TuiApp {
 
     /// Refresh download list from engine
     fn refresh_downloads(&mut self) {
+        // Preserve the selected download across the rebuild
+        let keep = self.selected_download().map(|d| d.id);
+
         self.downloads = match self.mode {
             ViewMode::All => self.engine.list(),
             ViewMode::Active => self.engine.active(),
@@ -1113,9 +1303,46 @@ impl TuiApp {
                 .collect(),
         };
 
-        // Adjust selection if needed
-        if self.selected >= self.downloads.len() && !self.downloads.is_empty() {
-            self.selected = self.downloads.len() - 1;
+        // Apply the search filter
+        if let Some(ref search) = self.search {
+            if !search.query.is_empty() {
+                let query = search.query.to_lowercase();
+                let scope = search.scope;
+                self.downloads
+                    .retain(|d| Self::matches_search(d, &query, scope));
+            }
+        }
+
+        // Re-find the previously selected download; fall back to clamping
+        self.selected = keep
+            .and_then(|id| self.downloads.iter().position(|d| d.id == id))
+            .unwrap_or_else(|| self.selected.min(self.downloads.len().saturating_sub(1)));
+        self.adjust_scroll(self.last_visible_height);
+    }
+
+    /// Check whether a download matches the search query within a scope
+    fn matches_search(d: &DownloadStatus, query: &str, scope: SearchScope) -> bool {
+        let name_match = || d.metadata.name.to_lowercase().contains(query);
+        let url_match = || {
+            d.metadata
+                .url
+                .as_deref()
+                .is_some_and(|u| u.to_lowercase().contains(query))
+                || d.metadata
+                    .magnet_uri
+                    .as_deref()
+                    .is_some_and(|u| u.to_lowercase().contains(query))
+        };
+        let state_match = || {
+            crate::format::format_state(&d.state)
+                .to_lowercase()
+                .contains(query)
+        };
+        match scope {
+            SearchScope::Name => name_match(),
+            SearchScope::Url => url_match(),
+            SearchScope::State => state_match(),
+            SearchScope::All => name_match() || url_match() || state_match(),
         }
     }
 
@@ -1210,7 +1437,7 @@ impl TuiApp {
     pub fn is_settings_bool(tab: usize, row: usize) -> bool {
         match tab {
             1 => row == 10,            // accept_invalid_certs
-            2 => matches!(row, 0..=4), // enable_dht, enable_pex, enable_lpd, max_peers is not bool but seed_ratio is not
+            2 => matches!(row, 0..=2), // enable_dht, enable_pex, enable_lpd (max_peers/seed_ratio are editable values)
             3 => matches!(row, 2 | 3), // show_speed_graph, show_peers
             _ => false,
         }

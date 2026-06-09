@@ -50,8 +50,15 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
     // Parse and categorize inputs
     let inputs: Vec<ParsedInput> = urls.iter().map(|u| parse_input(u)).collect::<Result<_>>()?;
 
-    // Add each download
+    // Subscribe BEFORE adding so a fast download finishing immediately can't
+    // complete before we start listening (missed-event hang)
+    let events = args.wait.then(|| app.subscribe());
+
+    // Add each download. Keep the real DownloadIds for --wait: GIDs only
+    // carry 8 of the 16 UUID bytes, so from_gid(to_gid(id)) != id and event
+    // matching by round-tripped IDs would never fire.
     let mut results = Vec::new();
+    let mut added_ids = Vec::new();
     for input in inputs {
         let options = build_options(&args, &input)?;
 
@@ -66,6 +73,7 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
             }
         };
 
+        added_ids.push(id);
         results.push(AddResult {
             id: id.to_gid(),
             input: input.display(),
@@ -74,8 +82,8 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
     }
 
     // If --wait, monitor until completion
-    if args.wait {
-        wait_for_completion(app, &results).await?;
+    if let Some(events) = events {
+        wait_for_completion(app, &added_ids, &results, events).await?;
     }
 
     // Output results
@@ -201,18 +209,19 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
     Ok(options)
 }
 
-async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {
-    let ids: HashSet<DownloadId> = results
-        .iter()
-        .filter_map(|r| DownloadId::from_gid(&r.id))
-        .collect();
+async fn wait_for_completion(
+    app: &App,
+    added_ids: &[DownloadId],
+    results: &[AddResult],
+    mut events: tokio::sync::broadcast::Receiver<DownloadEvent>,
+) -> Result<()> {
+    let ids: HashSet<DownloadId> = added_ids.iter().copied().collect();
 
     if ids.is_empty() {
         return Ok(());
     }
 
     let mut remaining = ids.clone();
-    let mut events = app.subscribe();
 
     // Setup progress bars
     let multi = MultiProgress::new();
@@ -221,56 +230,94 @@ async fn wait_for_completion(app: &App, results: &[AddResult]) -> Result<()> {
     )?
     .progress_chars("=> ");
 
-    let bars: HashMap<DownloadId, ProgressBar> = ids
+    let bars: HashMap<DownloadId, ProgressBar> = added_ids
         .iter()
-        .map(|id| {
+        .zip(results)
+        .map(|(id, result)| {
             let pb = multi.add(ProgressBar::new(0));
             pb.set_style(style.clone());
             pb.enable_steady_tick(Duration::from_millis(100));
+            pb.set_message(truncate_str(&result.input, 30));
             (*id, pb)
         })
         .collect();
 
-    // Set initial messages
-    for result in results {
-        if let Some(id) = DownloadId::from_gid(&result.id) {
-            if let Some(pb) = bars.get(&id) {
-                pb.set_message(truncate_str(&result.input, 30));
-            }
-        }
-    }
+    // Periodic reconcile guards against races (a download finishing between
+    // add and subscribe) and lagged broadcast receivers
+    let mut poll = tokio::time::interval(Duration::from_secs(2));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     while !remaining.is_empty() {
-        match events.recv().await {
-            Ok(DownloadEvent::Progress { id, progress }) if ids.contains(&id) => {
-                if let Some(pb) = bars.get(&id) {
-                    if let Some(total) = progress.total_size {
-                        pb.set_length(total);
+        tokio::select! {
+            event = events.recv() => match event {
+                Ok(DownloadEvent::Progress { id, progress }) if ids.contains(&id) => {
+                    if let Some(pb) = bars.get(&id) {
+                        if let Some(total) = progress.total_size {
+                            pb.set_length(total);
+                        }
+                        pb.set_position(progress.completed_size);
                     }
-                    pb.set_position(progress.completed_size);
                 }
-            }
-            Ok(DownloadEvent::Completed { id }) if ids.contains(&id) => {
-                if let Some(pb) = bars.get(&id) {
-                    pb.finish_with_message("Done");
+                Ok(DownloadEvent::Completed { id }) if ids.contains(&id) => {
+                    if let Some(pb) = bars.get(&id) {
+                        pb.finish_with_message("Done");
+                    }
+                    remaining.remove(&id);
                 }
-                remaining.remove(&id);
-            }
-            Ok(DownloadEvent::Failed { id, error, .. }) if ids.contains(&id) => {
-                if let Some(pb) = bars.get(&id) {
-                    pb.abandon_with_message(format!("Failed: {}", truncate_str(&error, 40)));
+                Ok(DownloadEvent::Failed { id, error, .. }) if ids.contains(&id) => {
+                    if let Some(pb) = bars.get(&id) {
+                        pb.abandon_with_message(format!("Failed: {}", truncate_str(&error, 40)));
+                    }
+                    remaining.remove(&id);
                 }
-                remaining.remove(&id);
-            }
-            Ok(DownloadEvent::Paused { id }) if ids.contains(&id) => {
-                if let Some(pb) = bars.get(&id) {
-                    pb.set_message("Paused");
+                Ok(DownloadEvent::Paused { id }) if ids.contains(&id) => {
+                    if let Some(pb) = bars.get(&id) {
+                        pb.set_message("Paused");
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    reconcile_remaining(app, &mut remaining, &bars);
+                }
+                _ => {}
+            },
+            _ = poll.tick() => {
+                reconcile_remaining(app, &mut remaining, &bars);
             }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            _ => continue,
         }
     }
 
     Ok(())
+}
+
+/// Mark downloads that reached a terminal state without us seeing the event
+fn reconcile_remaining(
+    app: &App,
+    remaining: &mut HashSet<DownloadId>,
+    bars: &HashMap<DownloadId, ProgressBar>,
+) {
+    remaining.retain(|id| match app.engine().status(*id) {
+        Some(status) => match status.state {
+            gosh_dl::DownloadState::Completed => {
+                if let Some(pb) = bars.get(id) {
+                    pb.finish_with_message("Done");
+                }
+                false
+            }
+            gosh_dl::DownloadState::Error { ref message, .. } => {
+                if let Some(pb) = bars.get(id) {
+                    pb.abandon_with_message(format!("Failed: {}", truncate_str(message, 40)));
+                }
+                false
+            }
+            _ => true,
+        },
+        // Download no longer tracked (cancelled/removed)
+        None => {
+            if let Some(pb) = bars.get(id) {
+                pb.abandon_with_message("Removed");
+            }
+            false
+        }
+    });
 }

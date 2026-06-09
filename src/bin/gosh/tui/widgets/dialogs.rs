@@ -20,9 +20,10 @@ pub fn render_help_dialog(frame: &mut Frame, app: &TuiApp) {
     Navigation:\n\
       \u{2191}/k      Select previous\n\
       \u{2193}/j      Select next\n\
-      J/K      Reorder (move down/up)\n\
+      J/K      Reorder (visual only)\n\
       PgUp     Page up\n\
       PgDn     Page down\n\
+      Tab      Cycle right-panel focus\n\
     \n\
     Actions:\n\
       a        Add new download\n\
@@ -31,13 +32,21 @@ pub fn render_help_dialog(frame: &mut Frame, app: &TuiApp) {
       r        Resume selected\n\
       c        Cancel selected\n\
       d        Cancel and delete files\n\
-      /        Search/filter downloads\n\
+      P        Pause ALL downloads\n\
+      R        Resume ALL downloads\n\
+      C        Cancel ALL downloads\n\
       S        Open settings\n\
+    \n\
+    Search:\n\
+      /        Search/filter (Ctrl+S: scope)\n\
+      Enter    Commit filter, Esc clears\n\
     \n\
     Views:\n\
       1        All downloads\n\
       2        Active only\n\
       3        Completed only\n\
+      L        Toggle activity log\n\
+      [ / ]    Scroll activity log\n\
     \n\
     Other:\n\
       ?        Toggle this help\n\
@@ -68,6 +77,11 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
 
             let inner = block.inner(area);
             frame.render_widget(block, area);
+
+            // Too small to lay out the input field without underflow
+            if inner.width < 6 || inner.height < 5 {
+                return;
+            }
 
             // Prompt text
             let prompt = Line::from(vec![Span::styled(
@@ -161,6 +175,45 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             ];
 
             let block = btop_block("Confirm", theme, true).style(Style::default().bg(theme.bg));
+
+            let paragraph = Paragraph::new(content).block(block);
+            frame.render_widget(paragraph, area);
+        }
+        DialogState::ConfirmCancelAll => {
+            let area = centered_rect(50, 20, frame.area());
+            frame.render_widget(Clear, area);
+
+            let count = app.downloads.len();
+            let content = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(
+                        "  Are you sure you want to ",
+                        Style::default().fg(theme.text),
+                    ),
+                    Span::styled(
+                        "cancel ALL",
+                        Style::default()
+                            .fg(theme.error)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(vec![Span::styled(
+                    format!("  {} download(s)? Files are kept.", count),
+                    Style::default().fg(theme.text),
+                )]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(" y ", Style::default().fg(theme.bg_deep).bg(theme.success)),
+                    Span::styled(" Yes  ", Style::default().fg(theme.subtext0)),
+                    Span::styled(" n ", Style::default().fg(theme.bg_deep).bg(theme.error)),
+                    Span::styled(" No ", Style::default().fg(theme.subtext0)),
+                ]),
+            ];
+
+            let block =
+                btop_block("Confirm Cancel All", theme, true).style(Style::default().bg(theme.bg));
 
             let paragraph = Paragraph::new(content).block(block);
             frame.render_widget(paragraph, area);

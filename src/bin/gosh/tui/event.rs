@@ -1,7 +1,7 @@
 use anyhow::Result;
-use crossterm::event::{self, Event as CrosstermEvent, KeyEvent};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind};
 use futures_util::StreamExt;
-use gosh_dl::DownloadEvent;
+use gosh_dl::{DownloadEvent, RecursiveJobEvent};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
@@ -12,6 +12,8 @@ pub enum AppEvent {
     Terminal(CrosstermEvent),
     /// Engine download event
     Engine(DownloadEvent),
+    /// Recursive mirror job event
+    RecursiveJob(RecursiveJobEvent),
     /// Periodic tick for UI refresh
     Tick,
     /// Full resync after missed events (broadcast lagged)
@@ -20,70 +22,127 @@ pub enum AppEvent {
     Resize(u16, u16),
 }
 
+/// Returns false for key events that must be dropped before reaching the app.
+///
+/// Windows delivers both Press and Release events for every keystroke (and
+/// Repeat for held keys); Unix terminals only deliver Press. Without this
+/// filter every keypress on Windows is handled twice (GitHub issue #1).
+/// Repeat is kept so held-key navigation still works on Windows.
+pub(crate) fn should_process(event: &CrosstermEvent) -> bool {
+    match event {
+        CrosstermEvent::Key(key) => key.kind != KeyEventKind::Release,
+        _ => true,
+    }
+}
+
 /// Event handler that merges terminal and engine events
 pub struct EventHandler {
     engine_events: broadcast::Receiver<DownloadEvent>,
+    recursive_events: broadcast::Receiver<RecursiveJobEvent>,
     tick_rate: Duration,
     terminal_reader: crossterm::event::EventStream,
+    /// Set when the corresponding stream has closed, so its select branch is
+    /// disabled instead of busy-spinning on an immediately-ready error.
+    engine_closed: bool,
+    recursive_closed: bool,
+    terminal_closed: bool,
 }
 
 impl EventHandler {
-    pub fn new(engine_events: broadcast::Receiver<DownloadEvent>, tick_rate: Duration) -> Self {
+    pub fn new(
+        engine_events: broadcast::Receiver<DownloadEvent>,
+        recursive_events: broadcast::Receiver<RecursiveJobEvent>,
+        tick_rate: Duration,
+    ) -> Self {
         Self {
             engine_events,
+            recursive_events,
             tick_rate,
             terminal_reader: crossterm::event::EventStream::new(),
+            engine_closed: false,
+            recursive_closed: false,
+            terminal_closed: false,
         }
     }
 
     /// Get the next event
     pub async fn next(&mut self) -> Result<AppEvent> {
-        let tick = tokio::time::sleep(self.tick_rate);
+        loop {
+            let tick = tokio::time::sleep(self.tick_rate);
 
-        tokio::select! {
-            // Check for terminal events
-            result = self.terminal_reader.next() => {
-                match result {
-                    Some(Ok(event)) => {
-                        if let CrosstermEvent::Resize(w, h) = event {
-                            Ok(AppEvent::Resize(w, h))
-                        } else {
-                            Ok(AppEvent::Terminal(event))
+            tokio::select! {
+                // Check for terminal events
+                result = self.terminal_reader.next(), if !self.terminal_closed => {
+                    match result {
+                        Some(Ok(event)) => {
+                            if !should_process(&event) {
+                                // Swallow key Release events (Windows double input)
+                                continue;
+                            }
+                            if let CrosstermEvent::Resize(w, h) = event {
+                                return Ok(AppEvent::Resize(w, h));
+                            }
+                            return Ok(AppEvent::Terminal(event));
+                        }
+                        Some(Err(e)) => return Err(e.into()),
+                        None => {
+                            // Input stream ended; rely on ticks from now on
+                            self.terminal_closed = true;
+                            continue;
                         }
                     }
-                    Some(Err(e)) => Err(e.into()),
-                    None => Ok(AppEvent::Tick),
                 }
-            }
-            // Check for engine events
-            result = self.engine_events.recv() => {
-                match result {
-                    Ok(event) => Ok(AppEvent::Engine(event)),
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        // Missed events — trigger full resync
-                        Ok(AppEvent::Resync)
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        // Engine shut down
-                        Ok(AppEvent::Tick)
+                // Check for engine events
+                result = self.engine_events.recv(), if !self.engine_closed => {
+                    match result {
+                        Ok(event) => return Ok(AppEvent::Engine(event)),
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            // Missed events — trigger full resync
+                            return Ok(AppEvent::Resync);
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            // Engine shut down
+                            self.engine_closed = true;
+                            continue;
+                        }
                     }
                 }
-            }
-            // Tick for periodic refresh
-            _ = tick => {
-                Ok(AppEvent::Tick)
+                // Check for recursive mirror job events
+                result = self.recursive_events.recv(), if !self.recursive_closed => {
+                    match result {
+                        Ok(event) => return Ok(AppEvent::RecursiveJob(event)),
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            return Ok(AppEvent::Resync);
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            self.recursive_closed = true;
+                            continue;
+                        }
+                    }
+                }
+                // Tick for periodic refresh
+                _ = tick => {
+                    return Ok(AppEvent::Tick);
+                }
             }
         }
     }
 }
 
-/// Helper to check if a key event matches
+/// Helper to check if a key event matches.
+///
+/// For non-alphanumeric keys (e.g. `?`), SHIFT is also accepted because some
+/// platforms (notably Windows) report shifted punctuation with the SHIFT
+/// modifier set. Alphanumeric keys require exact NONE so that e.g. `p` and
+/// Shift+`P` stay distinct bindings.
 pub fn is_key(event: &CrosstermEvent, key: char) -> bool {
     matches!(event, CrosstermEvent::Key(KeyEvent {
         code: event::KeyCode::Char(c),
-        modifiers: event::KeyModifiers::NONE,
+        modifiers,
         ..
-    }) if *c == key)
+    }) if *c == key
+        && (*modifiers == event::KeyModifiers::NONE
+            || (!key.is_ascii_alphanumeric() && *modifiers == event::KeyModifiers::SHIFT)))
 }
 
 /// Helper to check for Enter key
@@ -184,4 +243,79 @@ pub fn is_ctrl_c(event: &CrosstermEvent) -> bool {
             ..
         })
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
+
+    fn key_event(code: KeyCode, modifiers: KeyModifiers, kind: KeyEventKind) -> CrosstermEvent {
+        CrosstermEvent::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            state: KeyEventState::NONE,
+        })
+    }
+
+    // Regression tests for GitHub issue #1: TUI double input on Windows.
+    // Windows delivers Press AND Release for every keystroke; only Press
+    // (and Repeat, for held keys) may reach the app.
+    #[test]
+    fn release_events_are_filtered() {
+        let release = key_event(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        );
+        assert!(!should_process(&release));
+    }
+
+    #[test]
+    fn press_and_repeat_events_pass() {
+        let press = key_event(KeyCode::Char('q'), KeyModifiers::NONE, KeyEventKind::Press);
+        let repeat = key_event(KeyCode::Down, KeyModifiers::NONE, KeyEventKind::Repeat);
+        assert!(should_process(&press));
+        assert!(should_process(&repeat));
+    }
+
+    #[test]
+    fn non_key_events_pass() {
+        assert!(should_process(&CrosstermEvent::Resize(80, 24)));
+        assert!(should_process(&CrosstermEvent::FocusGained));
+    }
+
+    // The key helpers are deliberately kind-agnostic: filtering MUST happen
+    // upstream in EventHandler::next() via should_process().
+    #[test]
+    fn helpers_match_release_events_filtering_is_upstream() {
+        let release = key_event(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        );
+        assert!(is_key(&release, 'q'));
+    }
+
+    // Windows reports shifted punctuation (e.g. `?`) with SHIFT set.
+    #[test]
+    fn shifted_punctuation_matches_is_key() {
+        let question = key_event(KeyCode::Char('?'), KeyModifiers::SHIFT, KeyEventKind::Press);
+        assert!(is_key(&question, '?'));
+    }
+
+    #[test]
+    fn shifted_letter_does_not_match_is_key() {
+        let upper_p = key_event(KeyCode::Char('P'), KeyModifiers::SHIFT, KeyEventKind::Press);
+        assert!(!is_key(&upper_p, 'P'));
+        assert!(is_shift_key(&upper_p, 'P'));
+    }
+
+    #[test]
+    fn plain_key_matches_is_key() {
+        let p = key_event(KeyCode::Char('p'), KeyModifiers::NONE, KeyEventKind::Press);
+        assert!(is_key(&p, 'p'));
+        assert!(!is_key(&p, 'q'));
+    }
 }

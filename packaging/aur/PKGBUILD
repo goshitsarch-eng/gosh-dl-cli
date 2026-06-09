@@ -1,6 +1,6 @@
 # Maintainer: goshitsarch <goshitsarch@proton.me>
 pkgname=gosh-dl-cli
-pkgver=0.3.2
+pkgver=0.5.0
 pkgrel=1
 pkgdesc='Fast download manager with HTTP and BitTorrent support'
 arch=('x86_64' 'aarch64')
@@ -10,7 +10,8 @@ depends=('gcc-libs')
 makedepends=('cargo' 'cmake' 'perl')
 options=(!lto)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('e16d4c7c2fbd695f2730785645164797a69b3f7d78a98339e67979a89c3072f6')
+# Regenerate with `updpkgsums` after tagging v0.5.0
+sha256sums=('SKIP')
 
 prepare() {
   cd "gosh-dl-cli-$pkgver"

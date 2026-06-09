@@ -10,7 +10,8 @@ const BLOCKS: [char; 8] = [
 
 pub fn render_net_graph(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
-    let block = btop_block("Network", theme, false);
+    let focused = app.right_panel_focus == crate::tui::app::RightPanelFocus::Graph;
+    let block = btop_block("Network", theme, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

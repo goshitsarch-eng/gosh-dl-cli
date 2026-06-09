@@ -62,8 +62,7 @@ async fn run() -> Result<i32> {
     // Route to appropriate handler
     if let Some(cmd) = cli.command {
         // Subcommand provided - run it
-        run_command(cmd, config, cli.output, cli.config.clone()).await?;
-        Ok(0)
+        run_command(cmd, config, cli.output, cli.config.clone()).await
     } else if !cli.urls.is_empty() {
         // URLs provided without subcommand - direct download mode
         let opts = direct::DirectOptions {
@@ -156,25 +155,48 @@ async fn run_command(
     config: config::CliConfig,
     output_format: cli::OutputFormat,
     config_path: Option<std::path::PathBuf>,
-) -> Result<()> {
+) -> Result<i32> {
     // Initialize the application (engine)
     let app = app::App::new(config).await?;
 
-    match cmd {
-        Commands::Add(args) => commands::add::execute(*args, &app, output_format).await,
-        Commands::List(args) => commands::list::execute(args, &app, output_format).await,
-        Commands::Status(args) => commands::status::execute(args, &app, output_format).await,
-        Commands::Pause(args) => commands::pause::execute(args, &app).await,
-        Commands::Resume(args) => commands::resume::execute(args, &app).await,
-        Commands::Cancel(args) => commands::cancel::execute(args, &app).await,
-        Commands::Priority(args) => commands::priority::execute(args, &app).await,
-        Commands::Stats => commands::stats::execute(&app, output_format).await,
-        Commands::Info(args) => commands::info::execute(args, output_format).await,
+    let result = match cmd {
+        Commands::Add(args) => commands::add::execute(*args, &app, output_format)
+            .await
+            .map(|()| 0),
+        Commands::List(args) => commands::list::execute(args, &app, output_format)
+            .await
+            .map(|()| 0),
+        Commands::Status(args) => commands::status::execute(args, &app, output_format)
+            .await
+            .map(|()| 0),
+        Commands::Pause(args) => commands::pause::execute(args, &app).await.map(|()| 0),
+        Commands::Resume(args) => commands::resume::execute(args, &app).await.map(|()| 0),
+        Commands::Cancel(args) => commands::cancel::execute(args, &app).await.map(|()| 0),
+        Commands::PauseAll => commands::batch::pause_all(&app, output_format).await,
+        Commands::ResumeAll => commands::batch::resume_all(&app, output_format).await,
+        Commands::CancelAll(args) => commands::batch::cancel_all(args, &app, output_format).await,
+        Commands::Mirror(args) => commands::mirror::execute(*args, &app, output_format).await,
+        Commands::Priority(args) => commands::priority::execute(args, &app).await.map(|()| 0),
+        Commands::Stats => commands::stats::execute(&app, output_format)
+            .await
+            .map(|()| 0),
+        Commands::Info(args) => commands::info::execute(args, output_format)
+            .await
+            .map(|()| 0),
         Commands::Config(args) => {
-            commands::config::execute(args, &app.config, config_path.as_deref()).await
+            commands::config::execute(args, &app.config, config_path.as_deref())
+                .await
+                .map(|()| 0)
         }
-        Commands::Completions(_) => Ok(()), // handled before engine init
+        Commands::Completions(_) => Ok(0), // handled before engine init
+    };
+
+    // Always shut the engine down cleanly, even if the command failed
+    if let Err(e) = app.shutdown().await {
+        tracing::warn!("Engine shutdown error: {e:#}");
     }
+
+    result
 }
 
 #[cfg(feature = "tui")]
@@ -199,11 +221,7 @@ mod tests {
         let _guard = env_lock();
         let tempdir = TempDir::new().unwrap();
         let config_path = tempdir.path().join("config.toml");
-        std::fs::write(
-            &config_path,
-            "[engine]\nmax_peers = 5\n",
-        )
-        .unwrap();
+        std::fs::write(&config_path, "[engine]\nmax_peers = 5\n").unwrap();
 
         unsafe {
             std::env::set_var("HTTPS_PROXY", "http://env-proxy:8080");
@@ -231,7 +249,10 @@ mod tests {
 
         let config = load_runtime_config(&cli).unwrap();
 
-        assert_eq!(config.engine.proxy_url.as_deref(), Some("http://cli-proxy:8080"));
+        assert_eq!(
+            config.engine.proxy_url.as_deref(),
+            Some("http://cli-proxy:8080")
+        );
         assert_eq!(config.engine.max_retries, 9);
         assert_eq!(config.engine.max_peers, 7);
         assert!(!config.engine.enable_dht);
@@ -257,6 +278,8 @@ mod tests {
         .unwrap();
 
         let err = load_runtime_config(&cli).unwrap_err();
-        assert!(err.to_string().contains("engine.max_peers must be at least 1"));
+        assert!(err
+            .to_string()
+            .contains("engine.max_peers must be at least 1"));
     }
 }

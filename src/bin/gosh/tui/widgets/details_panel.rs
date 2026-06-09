@@ -12,7 +12,8 @@ use crate::util::truncate_str;
 pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
 
-    let block = btop_block("Details", theme, false);
+    let focused = app.right_panel_focus == crate::tui::app::RightPanelFocus::Details;
+    let block = btop_block("Details", theme, focused);
 
     let inner = block.inner(area);
     frame.render_widget(block, area);

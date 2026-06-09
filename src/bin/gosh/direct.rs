@@ -15,7 +15,7 @@ use crate::config::CliConfig;
 use crate::format::{print_error, print_warning};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::util::{
-    parse_checksum, parse_selected_files, parse_speed, sanitize_filename, truncate_str,
+    exit_codes, parse_checksum, parse_selected_files, parse_speed, sanitize_filename, truncate_str,
     validate_max_connections, validate_seed_ratio,
 };
 
@@ -34,14 +34,6 @@ pub struct DirectOptions {
     pub sequential: bool,
     pub select_files: Option<String>,
     pub seed_ratio: Option<f64>,
-}
-
-/// Exit codes for direct download mode
-pub mod exit_codes {
-    pub const SUCCESS: i32 = 0;
-    pub const PARTIAL_FAILURE: i32 = 1;
-    pub const TOTAL_FAILURE: i32 = 2;
-    pub const INTERRUPTED: i32 = 130;
 }
 
 /// State tracking for each download
@@ -83,6 +75,10 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
 
     let spinner_style =
         ProgressStyle::with_template("{spinner:.green} {msg:<40} {bytes} ({bytes_per_sec})")?;
+
+    // Subscribe BEFORE adding so a fast download finishing immediately can't
+    // complete before we start listening (missed-event hang)
+    let mut events = app.subscribe();
 
     // Add downloads and create progress bars
     let mut downloads: HashMap<DownloadId, DownloadInfo> = HashMap::new();
@@ -130,9 +126,12 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
         return Ok(exit_codes::TOTAL_FAILURE);
     }
 
-    // Subscribe to events and monitor progress
-    let mut events = app.subscribe();
+    // Monitor progress
     let download_ids: HashSet<DownloadId> = downloads.keys().copied().collect();
+
+    // Periodic reconcile guards against races and lagged broadcast receivers
+    let mut poll = tokio::time::interval(Duration::from_secs(2));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         // Check if all downloads are done
@@ -143,9 +142,11 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
         // Process events with timeout
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                // Cancel all active downloads
-                for id in &download_ids {
-                    let _ = app.engine().cancel(*id, false).await;
+                // Cancel downloads that are still in flight
+                for (id, info) in &downloads {
+                    if !info.completed && !info.failed {
+                        let _ = app.engine().cancel(*id, false).await;
+                    }
                 }
                 for info in downloads.values() {
                     if !info.completed && !info.failed {
@@ -154,6 +155,9 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
                 }
                 app.shutdown().await?;
                 return Ok(exit_codes::INTERRUPTED);
+            }
+            _ = poll.tick() => {
+                reconcile_downloads(&app, &mut downloads);
             }
             event = events.recv() => {
                 match event {
@@ -203,6 +207,8 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         tracing::debug!("Missed {} engine events", n);
+                        // Recover any terminal transitions we missed
+                        reconcile_downloads(&app, &mut downloads);
                         continue;
                     }
                     Err(_) => break, // Channel closed
@@ -231,6 +237,35 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
     } else {
         print_error(&format!("All {} downloads failed", total));
         Ok(exit_codes::TOTAL_FAILURE)
+    }
+}
+
+/// Mark downloads that reached a terminal state without us seeing the event
+fn reconcile_downloads(app: &App, downloads: &mut HashMap<DownloadId, DownloadInfo>) {
+    for (id, info) in downloads.iter_mut() {
+        if info.completed || info.failed {
+            continue;
+        }
+        match app.engine().status(*id) {
+            Some(status) => match status.state {
+                DownloadState::Completed => {
+                    info.completed = true;
+                    info.progress_bar
+                        .finish_with_message(format!("{} - Done", truncate_str(&info.name, 33)));
+                }
+                DownloadState::Error { ref message, .. } => {
+                    info.failed = true;
+                    info.progress_bar
+                        .abandon_with_message(format!("Failed: {}", truncate_str(message, 32)));
+                }
+                _ => {}
+            },
+            // Download no longer tracked (cancelled/removed)
+            None => {
+                info.failed = true;
+                info.progress_bar.abandon_with_message("Removed");
+            }
+        }
     }
 }
 

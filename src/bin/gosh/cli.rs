@@ -138,6 +138,18 @@ pub enum Commands {
     /// Cancel and optionally delete one or more downloads
     Cancel(CancelArgs),
 
+    /// Pause all active and queued downloads
+    PauseAll,
+
+    /// Resume all paused downloads
+    ResumeAll,
+
+    /// Cancel all downloads
+    CancelAll(CancelAllArgs),
+
+    /// Recursively mirror an HTTP/HTTPS directory listing
+    Mirror(Box<MirrorArgs>),
+
     /// Set download priority
     Priority(PriorityArgs),
 
@@ -274,6 +286,132 @@ pub struct CancelArgs {
     /// Skip confirmation prompt
     #[arg(short = 'y', long)]
     pub yes: bool,
+}
+
+#[derive(Args)]
+pub struct CancelAllArgs {
+    /// Also delete downloaded files
+    #[arg(long, alias = "delete")]
+    pub delete_files: bool,
+
+    /// Skip confirmation prompt
+    #[arg(short = 'y', long)]
+    pub yes: bool,
+}
+
+#[derive(Args)]
+pub struct MirrorArgs {
+    #[command(subcommand)]
+    pub action: Option<MirrorAction>,
+
+    /// Root URL to mirror (a directory-listing page)
+    #[arg(value_name = "URL")]
+    pub url: Option<String>,
+
+    /// Output directory (root of the mirrored tree)
+    #[arg(short = 'd', long)]
+    pub dir: Option<PathBuf>,
+
+    /// Maximum traversal depth
+    #[arg(long, value_name = "N")]
+    pub depth: Option<usize>,
+
+    /// Allow following links to other hosts
+    #[arg(long)]
+    pub span_hosts: bool,
+
+    /// Restrict discovered URLs to this path prefix
+    #[arg(long, value_name = "PREFIX")]
+    pub prefix: Option<String>,
+
+    /// Glob pattern a file must match to be downloaded (repeatable)
+    #[arg(long = "include", value_name = "GLOB")]
+    pub include: Vec<String>,
+
+    /// Glob pattern to skip (repeatable)
+    #[arg(long = "exclude", value_name = "GLOB")]
+    pub exclude: Vec<String>,
+
+    /// Flatten files into the output directory instead of preserving remote paths
+    #[arg(long)]
+    pub flatten: bool,
+
+    /// Overwrite existing local files
+    #[arg(long)]
+    pub overwrite: bool,
+
+    /// Abort remaining children after the first failure
+    #[arg(long)]
+    pub fail_fast: bool,
+
+    /// Concurrent discovery (page-fetch) requests
+    #[arg(long, value_name = "N")]
+    pub discovery_concurrency: Option<usize>,
+
+    /// Discover and list files without downloading
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Add the mirror job and exit without waiting for completion
+    #[arg(long)]
+    pub detach: bool,
+
+    /// Custom headers (format: "Name: Value")
+    #[arg(short = 'H', long = "header", value_name = "HEADER")]
+    pub headers: Vec<String>,
+
+    /// User agent string
+    #[arg(long)]
+    pub user_agent: Option<String>,
+
+    /// Referer URL
+    #[arg(long)]
+    pub referer: Option<String>,
+
+    /// Cookies (format: "name=value")
+    #[arg(long = "cookie")]
+    pub cookies: Vec<String>,
+
+    /// Maximum connections per file
+    #[arg(short = 'x', long)]
+    pub max_connections: Option<usize>,
+
+    /// Maximum download speed per file (bytes/sec, supports K/M/G suffixes)
+    #[arg(long)]
+    pub max_speed: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum MirrorAction {
+    /// List tracked mirror jobs
+    List,
+    /// Show aggregate status of a mirror job
+    Status {
+        /// Mirror job ID (full UUID or unique prefix)
+        id: String,
+    },
+    /// Cancel a mirror job's remaining downloads (keeps the job record)
+    Cancel {
+        /// Mirror job ID (full UUID or unique prefix)
+        id: String,
+        /// Also delete downloaded files
+        #[arg(long)]
+        delete_files: bool,
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Remove a mirror job record and cancel its remaining downloads
+    Remove {
+        /// Mirror job ID (full UUID or unique prefix)
+        id: String,
+        /// Also delete downloaded files
+        #[arg(long)]
+        delete_files: bool,
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 }
 
 #[derive(Args)]

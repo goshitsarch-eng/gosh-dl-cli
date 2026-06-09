@@ -38,11 +38,27 @@ pub struct GeneralConfig {
     /// Database path for persistence
     pub database_path: PathBuf,
 
+    /// Persistence backend: sqlite (default), file (JSON sidecars), none
+    pub storage_backend: StorageBackend,
+
     /// Log file path (None = stderr only)
     pub log_file: Option<PathBuf>,
 
     /// Log level (trace, debug, info, warn, error)
     pub log_level: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageBackend {
+    /// SQLite database at `general.database_path`
+    #[default]
+    Sqlite,
+    /// One JSON sidecar file per download (aria2 control-file analog),
+    /// stored next to the database path in a `state/` directory
+    File,
+    /// No persistence; downloads are lost on exit
+    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +140,7 @@ impl Default for GeneralConfig {
         Self {
             download_dir,
             database_path: data_dir.join("gosh.db"),
+            storage_backend: StorageBackend::default(),
             log_file: None,
             log_level: "info".to_string(),
         }
@@ -261,7 +278,13 @@ impl CliConfig {
             enable_lpd: self.engine.enable_lpd,
             max_peers: self.engine.max_peers,
             seed_ratio: self.engine.seed_ratio,
-            database_path: Some(self.general.database_path.clone()),
+            // Only the sqlite backend uses the engine's built-in database;
+            // file/none are wired up via DownloadEngine::with_storage
+            database_path: if self.general.storage_backend == StorageBackend::Sqlite {
+                Some(self.general.database_path.clone())
+            } else {
+                None
+            },
             http: gosh_dl::config::HttpConfig {
                 connect_timeout: self.engine.connect_timeout,
                 read_timeout: self.engine.read_timeout,

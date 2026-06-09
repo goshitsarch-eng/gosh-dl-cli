@@ -149,7 +149,7 @@ fn render_minimal(frame: &mut Frame, app: &mut TuiApp) {
 
 fn render_brand_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
-    let brand = Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             format!(" gosh v{} ", env!("CARGO_PKG_VERSION")),
             Style::default()
@@ -175,11 +175,45 @@ fn render_brand_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
             format!("\u{2502} {} downloads", app.downloads.len()),
             Style::default().fg(theme.subtext0),
         ),
-    ]);
+    ];
+    if let Some(indicator) = mirror_indicator(app) {
+        spans.push(Span::styled(
+            format!(" \u{2502} {indicator}"),
+            Style::default().fg(theme.accent),
+        ));
+    }
     frame.render_widget(
-        Paragraph::new(brand).style(Style::default().bg(theme.bg_dim)),
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.bg_dim)),
         area,
     );
+}
+
+/// Compact summary of in-flight mirror jobs, e.g. "⟳ 2 mirrors (37/120 files)"
+pub fn mirror_indicator(app: &TuiApp) -> Option<String> {
+    let active: Vec<_> = app
+        .recursive_jobs
+        .values()
+        .filter(|s| {
+            s.progress.queued_children + s.progress.active_children + s.progress.paused_children > 0
+        })
+        .collect();
+    if active.is_empty() {
+        return None;
+    }
+    let completed: usize = active.iter().map(|s| s.progress.completed_children).sum();
+    let total: usize = active.iter().map(|s| s.progress.total_children).sum();
+    let label = if active.len() == 1 {
+        "mirror"
+    } else {
+        "mirrors"
+    };
+    Some(format!(
+        "\u{27f3} {} {} ({}/{} files)",
+        active.len(),
+        label,
+        completed,
+        total
+    ))
 }
 
 fn render_search_bar(frame: &mut Frame, app: &TuiApp, search: &SearchState) {
@@ -196,25 +230,35 @@ fn render_search_bar(frame: &mut Frame, app: &TuiApp, search: &SearchState) {
     );
 
     let scope_label = search.scope.label();
-    let line = Line::from(vec![
-        Span::styled(
+    let (badge, badge_style, text_style) = if search.input_active {
+        (
             " / ",
             Style::default()
                 .fg(theme.bg_deep)
                 .bg(theme.accent)
                 .add_modifier(Modifier::BOLD),
-        ),
+            Style::default().fg(theme.text).bg(theme.surface0),
+        )
+    } else {
+        // Committed filter: dimmed, keyboard released
+        (
+            " FILTER ",
+            Style::default().fg(theme.bg_deep).bg(theme.surface2),
+            Style::default().fg(theme.subtext0).bg(theme.surface0),
+        )
+    };
+    let line = Line::from(vec![
+        Span::styled(badge, badge_style),
         Span::styled(
             format!(" [{}] ", scope_label),
             Style::default().fg(theme.accent).bg(theme.surface0),
         ),
+        Span::styled(search.query.to_string(), text_style),
         Span::styled(
-            search.query.to_string(),
-            Style::default().fg(theme.text).bg(theme.surface0),
-        ),
-        Span::styled(
-            if search.query.is_empty() {
-                " Type to search... (Ctrl+S: scope, Esc: cancel)"
+            if search.input_active && search.query.is_empty() {
+                " Type to search... (Ctrl+S: scope, Enter: commit, Esc: cancel)"
+            } else if !search.input_active {
+                "  (Esc: clear, /: edit)"
             } else {
                 ""
             },
@@ -224,9 +268,11 @@ fn render_search_bar(frame: &mut Frame, app: &TuiApp, search: &SearchState) {
 
     frame.render_widget(Paragraph::new(line), bar_area);
 
-    // Position cursor
-    let cursor_x = bar_area.x + 3 + scope_label.len() as u16 + 4 + search.cursor as u16;
-    if cursor_x < bar_area.x + bar_area.width {
-        frame.set_cursor_position(Position::new(cursor_x, bar_area.y));
+    // Position cursor (only while capturing input)
+    if search.input_active {
+        let cursor_x = bar_area.x + 3 + scope_label.len() as u16 + 4 + search.cursor as u16;
+        if cursor_x < bar_area.x + bar_area.width {
+            frame.set_cursor_position(Position::new(cursor_x, bar_area.y));
+        }
     }
 }

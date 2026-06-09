@@ -5,7 +5,8 @@ use crate::tui::app::{ChunkState, TuiApp};
 
 pub fn render_chunk_map(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let theme = app.theme();
-    let block = btop_block(&format!("Chunks ({})", app.chunk_count), theme, false);
+    let focused = app.right_panel_focus == crate::tui::app::RightPanelFocus::ChunkMap;
+    let block = btop_block(&format!("Chunks ({})", app.chunk_count), theme, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

@@ -108,10 +108,7 @@ fn looks_like_implicit_url(input: &str) -> bool {
         return false;
     }
 
-    let host_and_path = input
-        .split_once('/')
-        .map(|(host, _)| host)
-        .unwrap_or(input);
+    let host_and_path = input.split_once('/').map(|(host, _)| host).unwrap_or(input);
     let host = host_and_path
         .split_once(':')
         .map(|(host, _)| host)
@@ -121,10 +118,9 @@ fn looks_like_implicit_url(input: &str) -> bool {
         return false;
     }
 
-    if !host
-        .split('.')
-        .all(|label| !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
-    {
+    if !host.split('.').all(|label| {
+        !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }) {
         return false;
     }
 
@@ -231,7 +227,10 @@ mod tests {
     #[test]
     fn test_parse_path_like_inputs_are_not_urls() {
         for input in ["./foo.bar", "../foo.bar", "/tmp/foo.bar", "~/foo.bar"] {
-            assert!(parse_input(input).is_err(), "expected '{input}' to be rejected");
+            assert!(
+                parse_input(input).is_err(),
+                "expected '{input}' to be rejected"
+            );
         }
     }
 }

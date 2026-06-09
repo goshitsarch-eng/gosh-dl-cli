@@ -6,7 +6,20 @@ use crate::cli::CancelArgs;
 use crate::util::resolve_download_ids;
 
 pub async fn execute(args: CancelArgs, app: &App) -> Result<()> {
-    // For "all", cancel all downloads
+    // "all" delegates to the engine's batch API
+    if args.ids.len() == 1 && args.ids[0].eq_ignore_ascii_case("all") {
+        let batch_args = crate::cli::CancelAllArgs {
+            delete_files: args.delete,
+            yes: args.yes,
+        };
+        let code =
+            super::batch::cancel_all(batch_args, app, crate::cli::OutputFormat::Table).await?;
+        if code != 0 {
+            anyhow::bail!("Failed to cancel some download(s)");
+        }
+        return Ok(());
+    }
+
     let ids = resolve_download_ids(&args.ids, app.engine(), |_| true)?;
 
     if ids.is_empty() {

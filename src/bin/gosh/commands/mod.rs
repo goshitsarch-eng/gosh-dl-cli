@@ -1,8 +1,10 @@
 pub mod add;
+pub mod batch;
 pub mod cancel;
 pub mod config;
 pub mod info;
 pub mod list;
+pub mod mirror;
 pub mod pause;
 pub mod priority;
 pub mod resume;

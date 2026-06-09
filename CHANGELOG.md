@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-09
+
+### Added
+
+- **Recursive HTTP mirroring**: new `gosh mirror <URL>` command (wget -r style) built on gosh-dl 0.5.0's recursive engine — flags for `--depth`, `--include`/`--exclude` globs, `--prefix`, `--span-hosts`, `--flatten`, `--overwrite`, `--fail-fast`, `--discovery-concurrency`, plus `--dry-run` (discover-only preview) and `--detach` (fire and forget)
+- Mirror job management: `gosh mirror list|status|cancel|remove` with UUID-prefix job resolution
+- **Batch commands**: `gosh pause-all`, `gosh resume-all`, and `gosh cancel-all [--delete-files] [-y]` using the engine's new batch APIs, with per-download outcome reporting (succeeded/skipped/failed) in table and JSON formats
+- TUI batch keybindings: `Shift+P` pause all, `Shift+R` resume all, `Shift+C` cancel all (with confirmation dialog); outcomes shown as toasts
+- TUI: active mirror jobs shown as a compact counter in the top bar, with activity-log entries on completion/failure
+- TUI: activity log can now be scrolled with `[` / `]`
+- TUI: Tab now visibly highlights the focused right panel
+- `general.storage_backend` config option: `sqlite` (default), `file` (one JSON sidecar per download, aria2-style), or `none` (no persistence)
+
+### Changed
+
+- Upgrade gosh-dl engine from 0.3.2 to 0.5.0
+- Align gosh-dl-cli crate version to 0.5.0
+- **Pausing now also holds queued downloads** (gosh-dl 0.5.0 behavior change): `gosh pause all` / `pause-all` freezes the entire queue instead of letting waiting downloads get promoted into freed slots
+- `gosh pause/resume/cancel all` now delegate to the engine's atomic batch APIs
+- Subcommands now shut the engine down cleanly before exiting (previously only direct mode and the TUI did)
+- Batch and mirror command failures map to documented exit codes (0/1/2/130)
+- TUI redraws are coalesced: engine progress events mark state dirty and the screen repaints at most once per refresh interval, instead of once per event — significantly lower CPU with active downloads
+- TUI search (`/`) now actually filters the download list (by name, URL, or state, with Ctrl+S scope cycling); Enter commits the filter and releases the keyboard, Esc clears it
+- TUI help overlay and status bar now document the full keymap
+
+### Fixed
+
+- **TUI double input on Windows** (#1): key Release events are now filtered out; Windows delivers both Press and Release for every keystroke, so every key previously acted twice
+- TUI: `?` (help) now works on platforms that report shifted punctuation with the SHIFT modifier (Windows)
+- `gosh add --wait` could hang forever if a small download finished before the event subscription was set up; events are now subscribed before adding, with a periodic reconcile fallback
+- Direct mode had the same missed-event race, and could stall after a lagged event stream; both paths now reconcile against engine state every 2 seconds
+- Direct mode Ctrl+C no longer tries to cancel downloads that already finished
+- TUI: selection no longer jumps to a different download when the list refreshes (selection is preserved by ID)
+- TUI: "Download removed" events were logged as "Download added"
+- TUI: Max Peers and Seed Ratio settings rows were impossible to edit (misclassified as toggles)
+- TUI: settings navigation could scroll past the last row onto phantom rows
+- TUI: Esc in settings now reports validation errors as a toast instead of silently discarding edits
+- TUI: batch-import dialog could panic when truncating URLs containing multibyte characters
+- TUI: Add-download dialog could underflow and panic in very small terminals
+- TUI: event loop no longer busy-spins at 100% CPU if stdin closes or the engine event channel shuts down
+
 ## [0.3.1] - 2026-03-08
 
 ### Changed

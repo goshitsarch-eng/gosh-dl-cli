@@ -43,6 +43,7 @@ fn get_config_value(config: &CliConfig, key: &str) -> Result<()> {
     let value = match parts.as_slice() {
         ["general", "download_dir"] => config.general.download_dir.display().to_string(),
         ["general", "database_path"] => config.general.database_path.display().to_string(),
+        ["general", "storage_backend"] => format_storage_backend(config.general.storage_backend),
         ["general", "log_file"] => display_optional_path(config.general.log_file.as_ref()),
         ["general", "log_level"] => config.general.log_level.clone(),
         ["engine", "max_concurrent_downloads"] => {
@@ -95,6 +96,9 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
         }
         ["general", "database_path"] => {
             config.general.database_path = value.into();
+        }
+        ["general", "storage_backend"] => {
+            config.general.storage_backend = parse_storage_backend(value)?;
         }
         ["general", "log_file"] => {
             config.general.log_file = parse_optional_path(value);
@@ -180,6 +184,29 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
     Ok(())
 }
 
+fn format_storage_backend(backend: crate::config::StorageBackend) -> String {
+    use crate::config::StorageBackend;
+    match backend {
+        StorageBackend::Sqlite => "sqlite",
+        StorageBackend::File => "file",
+        StorageBackend::None => "none",
+    }
+    .to_string()
+}
+
+fn parse_storage_backend(value: &str) -> Result<crate::config::StorageBackend> {
+    use crate::config::StorageBackend;
+    match value.to_lowercase().as_str() {
+        "sqlite" => Ok(StorageBackend::Sqlite),
+        "file" => Ok(StorageBackend::File),
+        "none" => Ok(StorageBackend::None),
+        other => anyhow::bail!(
+            "Invalid storage backend '{}'. Expected: sqlite, file, none",
+            other
+        ),
+    }
+}
+
 fn display_optional_path(path: Option<&std::path::PathBuf>) -> String {
     path.map(|p| p.display().to_string())
         .unwrap_or_else(|| "unset".to_string())
@@ -228,8 +255,14 @@ mod tests {
     fn get_optional_values_print_unset() {
         let config = CliConfig::default();
 
-        assert_eq!(display_optional_path(config.general.log_file.as_ref()), "unset");
-        assert_eq!(display_optional_string(config.engine.proxy_url.as_ref()), "unset");
+        assert_eq!(
+            display_optional_path(config.general.log_file.as_ref()),
+            "unset"
+        );
+        assert_eq!(
+            display_optional_string(config.engine.proxy_url.as_ref()),
+            "unset"
+        );
     }
 
     #[test]
@@ -237,7 +270,12 @@ mod tests {
         let tempdir = TempDir::new().unwrap();
         let config_path = tempdir.path().join("config.toml");
 
-        set_config_value("general.log_file", "/tmp/gosh.log", Some(config_path.as_path())).unwrap();
+        set_config_value(
+            "general.log_file",
+            "/tmp/gosh.log",
+            Some(config_path.as_path()),
+        )
+        .unwrap();
         set_config_value(
             "engine.proxy_url",
             "http://localhost:8080",
@@ -247,8 +285,12 @@ mod tests {
         set_config_value("engine.connect_timeout", "15", Some(config_path.as_path())).unwrap();
         set_config_value("engine.read_timeout", "45", Some(config_path.as_path())).unwrap();
         set_config_value("engine.max_retries", "7", Some(config_path.as_path())).unwrap();
-        set_config_value("engine.accept_invalid_certs", "true", Some(config_path.as_path()))
-            .unwrap();
+        set_config_value(
+            "engine.accept_invalid_certs",
+            "true",
+            Some(config_path.as_path()),
+        )
+        .unwrap();
 
         let config = CliConfig::load(Some(config_path.as_path())).unwrap();
         assert_eq!(
@@ -270,7 +312,12 @@ mod tests {
         let tempdir = TempDir::new().unwrap();
         let config_path = tempdir.path().join("config.toml");
 
-        set_config_value("general.log_file", "/tmp/gosh.log", Some(config_path.as_path())).unwrap();
+        set_config_value(
+            "general.log_file",
+            "/tmp/gosh.log",
+            Some(config_path.as_path()),
+        )
+        .unwrap();
         set_config_value("general.log_file", "unset", Some(config_path.as_path())).unwrap();
         set_config_value(
             "engine.proxy_url",

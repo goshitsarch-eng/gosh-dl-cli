@@ -6,6 +6,22 @@
 
 A download manager for the terminal. HTTP/HTTPS with multi-connection acceleration, full BitTorrent support, and an optional TUI. Built on [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
 
+## Features
+
+- **HTTP/HTTPS downloads** with multi-connection acceleration, resume, retries, mirrors, checksum verification, and speed limits
+- **Full BitTorrent support** -- torrents and magnet links with DHT, PEX, LPD, sequential mode, file selection, and seed ratio control
+- **Recursive HTTP mirroring** (`gosh mirror`) -- crawl a directory listing and download everything under it, wget -r style, with depth limits, include/exclude globs, dry-run previews, and detached background jobs
+- **Three usage modes** -- aria2-style direct downloads with progress bars, a full-screen TUI, and scriptable subcommands with JSON output
+- **Batch operations** -- `pause-all`, `resume-all`, and `cancel-all` (CLI and TUI) with per-download outcome reporting
+- **Interactive TUI** -- live speed graphs, chunk visualization, search/filtering, activity log, settings editor, batch URL import, and mirror job tracking
+- **Persistent queue** -- downloads survive restarts via SQLite (default), aria2-style JSON sidecar files, or no persistence at all (`storage_backend`)
+- **Bandwidth scheduling** -- time-of-day and day-of-week speed limit rules
+- Cross-platform: Linux, macOS, and Windows
+
+### What's new in 0.5.0
+
+Built on gosh-dl 0.5.0: the new `gosh mirror` command with job management, batch pause/resume/cancel commands and TUI keybindings (`P`/`R`/`C`), pluggable storage backends, a working TUI search filter, coalesced TUI redraws (much lower CPU), and a fix for doubled keystrokes in the TUI on Windows. Pausing now also holds queued downloads. See the [CHANGELOG](CHANGELOG.md) for the full list.
+
 ## Screenshots
 
 ![Screenshot 1](screenshots/img1.png)
@@ -66,6 +82,12 @@ Torrents and magnet links work the same way:
 ```bash
 gosh magnet:?xt=urn:btih:...
 gosh ./ubuntu.torrent
+```
+
+Mirror an HTTP directory listing recursively (wget -r style):
+
+```bash
+gosh mirror https://ftp.gnu.org/gnu/hello/
 ```
 
 Launch the interactive TUI by running `gosh` with no arguments.
@@ -156,6 +178,17 @@ Accepts all the direct mode options above, plus:
 | `--delete` | Also delete downloaded files |
 | `-y, --yes` | Skip confirmation |
 
+**`gosh pause-all`** / **`gosh resume-all`** / **`gosh cancel-all`** -- Batch operations across every download, reporting per-download outcomes (succeeded / skipped / failed).
+
+| Flag (`cancel-all`) | Description |
+|------|-------------|
+| `--delete-files` | Also delete downloaded files |
+| `-y, --yes` | Skip confirmation |
+
+> **Note:** as of gosh-dl 0.5.0, pausing also holds *queued* downloads, so `pause all` / `pause-all` freezes the whole queue instead of letting waiting downloads get promoted into freed slots.
+
+**`gosh mirror <URL>`** -- Recursively mirror an HTTP/HTTPS directory listing (like `wget -r`). See [Mirroring](#mirroring-recursive-http) below.
+
 **`gosh priority <ID> <LEVEL>`** -- Set download priority (`low`, `normal`, `high`, `critical`).
 
 **`gosh stats`** -- Show global download/upload statistics.
@@ -166,22 +199,73 @@ Accepts all the direct mode options above, plus:
 
 **`gosh completions <SHELL>`** -- Generate shell completions for `bash`, `zsh`, `fish`, `elvish`, or `powershell`. Pipe the output to the appropriate completions directory for your shell.
 
+## Mirroring (recursive HTTP)
+
+`gosh mirror` crawls a directory-listing page and downloads every file it discovers, preserving the remote directory structure locally:
+
+```bash
+# Mirror a directory tree
+gosh mirror https://ftp.gnu.org/gnu/hello/
+
+# Preview what would be downloaded without downloading anything
+gosh mirror --dry-run --depth 2 https://ftp.gnu.org/gnu/hello/
+
+# Only .iso and .sig files, two levels deep, into ~/mirrors
+gosh mirror -d ~/mirrors --depth 2 --include '*.iso' --include '*.sig' \
+    https://example.com/releases/
+
+# Start the mirror and return immediately; manage it later
+gosh mirror --detach https://example.com/files/
+gosh mirror list
+gosh mirror status <ID>
+gosh mirror cancel <ID>
+gosh mirror remove <ID> --delete-files
+```
+
+| Flag | Description |
+|------|-------------|
+| `-d, --dir <PATH>` | Output directory (root of the mirrored tree) |
+| `--depth <N>` | Maximum traversal depth (default: 16) |
+| `--include <GLOB>` | Only download matching files (repeatable) |
+| `--exclude <GLOB>` | Skip matching files (repeatable) |
+| `--prefix <PREFIX>` | Restrict discovered URLs to a path prefix |
+| `--span-hosts` | Follow links to other hosts (off by default) |
+| `--flatten` | Put all files in one directory instead of preserving paths |
+| `--overwrite` | Overwrite existing local files |
+| `--fail-fast` | Abort remaining files after the first failure |
+| `--discovery-concurrency <N>` | Concurrent page-fetch requests (default: 4) |
+| `--dry-run` | Discover and list files without downloading |
+| `--detach` | Add the job and exit without waiting |
+
+HTTP options from direct mode (`-H`, `--user-agent`, `--referer`, `--cookie`, `-x`, `--max-speed`) also apply to each mirrored file. Overall download parallelism is governed by `engine.max_concurrent_downloads` in the config; `--discovery-concurrency` only affects the page crawl.
+
+Mirror exit codes follow the standard table below: `0` all files completed, `1` some failed, `2` all failed, `130` interrupted.
+
 ## TUI keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
 | `a` | Add new download |
+| `A` | Batch import URLs |
 | `p` | Pause selected |
 | `r` | Resume selected |
 | `c` | Cancel selected |
 | `d` | Cancel and delete files |
+| `P` | Pause ALL downloads (including queued) |
+| `R` | Resume ALL paused downloads |
+| `C` | Cancel ALL downloads (with confirmation) |
+| `/` | Search/filter the list (Ctrl+S cycles scope, Enter commits, Esc clears) |
+| `S` | Open settings |
+| `L` | Toggle activity log |
+| `[` / `]` | Scroll activity log |
+| Tab | Cycle right-panel focus |
 | `1` / `2` / `3` | View all / active / completed |
 | `j`/`k` or arrows | Navigate |
 | PgUp / PgDn | Scroll page |
 | `?` | Toggle help overlay |
 | `q` or Ctrl+C | Quit |
 
-The details panel at the bottom shows a speed graph sparkline for the selected download.
+The details panel at the bottom shows a speed graph sparkline for the selected download. Active mirror jobs appear as a compact counter in the top bar.
 
 ## Configuration
 
@@ -193,6 +277,7 @@ Override the path with `-c <PATH>` or the `GOSH_CONFIG` environment variable.
 [general]
 download_dir = "~/Downloads"
 log_level = "info"                      # trace, debug, info, warn, error
+storage_backend = "sqlite"              # sqlite (default), file (JSON sidecars), none
 
 [engine]
 max_concurrent_downloads = 5

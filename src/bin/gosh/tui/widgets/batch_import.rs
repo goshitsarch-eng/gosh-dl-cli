@@ -187,11 +187,9 @@ pub fn render_batch_import(frame: &mut Frame, dialog: &DialogState, app: &TuiApp
                 let bg = if is_sel { theme.surface0 } else { Color::Reset };
 
                 let max_url_width = (inner.width as usize).saturating_sub(20);
-                let url_display = if entry.url.len() > max_url_width {
-                    format!("{}...", &entry.url[..max_url_width.saturating_sub(3)])
-                } else {
-                    entry.url.clone()
-                };
+                // truncate_str cuts on char boundaries (byte slicing panics on
+                // multibyte URLs)
+                let url_display = crate::util::truncate_str(&entry.url, max_url_width);
 
                 let mut spans = vec![
                     Span::styled(format!("  {} ", checkbox), checkbox_style.bg(bg)),

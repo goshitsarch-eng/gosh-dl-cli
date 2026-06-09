@@ -1,6 +1,14 @@
 use anyhow::{bail, Result};
 use gosh_dl::{DownloadEngine, DownloadId};
 
+/// Process exit codes shared by direct-download and mirror modes
+pub mod exit_codes {
+    pub const SUCCESS: i32 = 0;
+    pub const PARTIAL_FAILURE: i32 = 1;
+    pub const TOTAL_FAILURE: i32 = 2;
+    pub const INTERRUPTED: i32 = 130;
+}
+
 /// Parse a download ID string, supporting both full UUIDs and short GIDs.
 ///
 /// The function tries the following in order:
@@ -29,6 +37,42 @@ pub fn resolve_download_id(s: &str, engine: &DownloadEngine) -> Result<DownloadI
             let ids: Vec<_> = matches.iter().map(|d| d.id.to_gid()).collect();
             bail!(
                 "Ambiguous ID '{}' matches multiple downloads: {}. Please use a longer prefix or full UUID.",
+                s,
+                ids.join(", ")
+            )
+        }
+    }
+}
+
+/// Resolve a mirror job ID string, supporting both full UUIDs and unique prefixes.
+pub fn resolve_mirror_job_id(s: &str, engine: &DownloadEngine) -> Result<uuid::Uuid> {
+    // Try parsing as full UUID first
+    if let Ok(id) = uuid::Uuid::parse_str(s) {
+        return Ok(id);
+    }
+
+    // Try matching by hex prefix (ignoring dashes)
+    let normalized = s.to_lowercase().replace('-', "");
+    if normalized.is_empty() || !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("Invalid mirror job ID: {}", s);
+    }
+
+    let jobs = engine.list_recursive_jobs();
+    let matches: Vec<_> = jobs
+        .iter()
+        .filter(|j| j.id.simple().to_string().starts_with(&normalized))
+        .collect();
+
+    match matches.len() {
+        0 => bail!("Mirror job not found: {}", s),
+        1 => Ok(matches[0].id),
+        _ => {
+            let ids: Vec<_> = matches
+                .iter()
+                .map(|j| j.id.simple().to_string()[..8].to_string())
+                .collect();
+            bail!(
+                "Ambiguous mirror job ID '{}' matches: {}. Use a longer prefix or full UUID.",
                 s,
                 ids.join(", ")
             )
@@ -130,7 +174,10 @@ pub fn parse_selected_files(s: &str) -> Result<Vec<usize>> {
         }
 
         let index = token.parse::<usize>().map_err(|_| {
-            anyhow::anyhow!("Invalid file index '{}'. --select-files expects integers.", token)
+            anyhow::anyhow!(
+                "Invalid file index '{}'. --select-files expects integers.",
+                token
+            )
         })?;
         indices.push(index);
     }
