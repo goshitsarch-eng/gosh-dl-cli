@@ -77,11 +77,13 @@ fn test_invalid_url() {
     gosh().arg("not-a-url").assert().failure();
 }
 
-/// Write an isolated config so tests never touch the user's real database
+/// Write an isolated config so tests never touch the user's real database.
+/// TOML literal strings (single quotes) keep Windows backslash paths intact —
+/// double-quoted strings would treat them as escape sequences.
 fn temp_config(dir: &tempfile::TempDir) -> std::path::PathBuf {
     let config_path = dir.path().join("config.toml");
     let contents = format!(
-        "[general]\ndownload_dir = \"{}\"\ndatabase_path = \"{}\"\n",
+        "[general]\ndownload_dir = '{}'\ndatabase_path = '{}'\n",
         dir.path().display(),
         dir.path().join("gosh.db").display()
     );
