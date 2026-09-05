@@ -1,125 +1,131 @@
 name: Release
-
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths: [Cargo.toml, CHANGELOG.md]
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to build from'
-        required: false
-        default: 'main'
-        type: string
 
 permissions:
-  contents: write
+  contents: read
 
-env:
-  CARGO_TERM_COLOR: always
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-musl
-            name: linux-x86_64
-            artifact: gosh
-            cross: true
-          - os: ubuntu-22.04
-            target: aarch64-unknown-linux-musl
-            name: linux-arm64
-            artifact: gosh
-            cross: true
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            name: macos-x86_64
-            artifact: gosh
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            name: macos-arm64
-            artifact: gosh
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            name: windows-x86_64
-            artifact: gosh.exe
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            name: windows-arm64
-            artifact: gosh.exe
+  validate:
+    uses: ./.github/workflows/ci.yml
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-
-      - name: Install cross
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build with cross
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
-
-      - name: Build
-        if: ${{ !matrix.cross }}
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Create archive (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar -czvf ../../../gosh-${{ matrix.name }}.tar.gz ${{ matrix.artifact }}
-          cd ../../..
-
-      - name: Create archive (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../gosh-${{ matrix.name }}.zip ${{ matrix.artifact }}
-          cd ../../..
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gosh-${{ matrix.name }}
-          path: gosh-${{ matrix.name }}.*
-
-  release:
-    name: Create Release
-    needs: build
+  publish:
+    needs: validate
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      id-token: write
     steps:
-      - name: Download all artifacts
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Prepare version and release notes
+        id: release
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, tomllib
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+              raise SystemExit('Stable release requires a numeric major.minor.patch version')
+          changelog = pathlib.Path('CHANGELOG.md').read_text()
+          match = re.search(r'^## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=^## \[|\Z)', changelog, re.M | re.S)
+          if not match or not match.group(1).strip():
+              raise SystemExit('Missing release notes for ' + version)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(match.group(1).strip() + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'version={version}\ntag=v{version}\n')
+          PY
+      - name: Build and verify source package
+        run: cargo package --locked --all-features
+      - name: Download release binaries
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+          pattern: gosh-*
+          path: ${{ runner.temp }}/release-artifacts
+          merge-multiple: true
+      - name: Verify release assets and write checksums
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib
+          directory = pathlib.Path(os.environ['RUNNER_TEMP'], 'release-artifacts')
+          names = ['gosh-linux-x86_64.tar.gz', 'gosh-linux-arm64.tar.gz',
+                   'gosh-macos-x86_64.tar.gz', 'gosh-macos-arm64.tar.gz',
+                   'gosh-windows-x86_64.zip', 'gosh-windows-arm64.zip']
+          paths = [directory / name for name in names]
+          paths.append(pathlib.Path('target/package', f"gosh-dl-cli-{os.environ['RELEASE_VERSION']}.crate"))
+          lines = []
+          for path in paths:
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'Missing release asset: {path.name}')
+              lines.append(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n')
+          (directory / 'SHA256SUMS').write_text(''.join(lines))
+          PY
+      - name: Check registry publication
+        id: registry
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.error, urllib.request
+          version = os.environ['RELEASE_VERSION']
+          request = urllib.request.Request(
+              f'https://crates.io/api/v1/crates/gosh-dl-cli/{version}',
+              headers={'User-Agent': 'gosh-dl-cli-release (https://github.com/goshitsarch-eng/gosh-dl-cli)'},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  published = json.load(response)['version']
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              exists = False
+          else:
+              package = pathlib.Path(f'target/package/gosh-dl-cli-{version}.crate')
+              checksum = hashlib.sha256(package.read_bytes()).hexdigest()
+              if published['num'] != version or published['checksum'] != checksum:
+                  raise SystemExit('Published version differs from this package; choose a new version')
+              if published.get('yanked'):
+                  raise SystemExit('Published version is yanked; choose a new version')
+              exists = True
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'exists={str(exists).lower()}\n')
+          PY
+      - name: Authenticate with crates.io
+        if: steps.registry.outputs.exists == 'false'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish to crates.io
+        if: steps.registry.outputs.exists == 'false'
+        run: cargo publish --locked --all-features --registry crates-io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; leaving it unchanged."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" \
+            "target/package/gosh-dl-cli-${RELEASE_VERSION}.crate" \
+            "${RUNNER_TEMP}/release-artifacts/"* \
+            --target "$GITHUB_SHA" --title "$RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" --latest

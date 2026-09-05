@@ -10,49 +10,26 @@ use crate::util::truncate_str;
 pub fn render_help_dialog(frame: &mut Frame, app: &TuiApp) {
     let theme = app.theme();
 
-    let area = centered_rect(60, 70, frame.area());
+    let area = dialog_rect(90, 21, frame.area());
     frame.render_widget(Clear, area);
 
-    let help_text = "\
-    Keyboard Shortcuts\n\
-    \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\n\
-    \n\
-    Navigation:\n\
-      \u{2191}/k      Select previous\n\
-      \u{2193}/j      Select next\n\
-      J/K      Reorder (visual only)\n\
-      PgUp     Page up\n\
-      PgDn     Page down\n\
-      Tab      Cycle right-panel focus\n\
-    \n\
-    Actions:\n\
-      a        Add new download\n\
-      A        Batch import URLs\n\
-      p        Pause selected\n\
-      r        Resume selected\n\
-      c        Cancel selected\n\
-      d        Cancel and delete files\n\
-      P        Pause ALL downloads\n\
-      R        Resume ALL downloads\n\
-      C        Cancel ALL downloads\n\
-      S        Open settings\n\
-    \n\
-    Search:\n\
-      /        Search/filter (Ctrl+S: scope)\n\
-      Enter    Commit filter, Esc clears\n\
-    \n\
-    Views:\n\
-      1        All downloads\n\
-      2        Active only\n\
-      3        Completed only\n\
-      L        Toggle activity log\n\
-      [ / ]    Scroll activity log\n\
-    \n\
-    Other:\n\
-      ?        Toggle this help\n\
-      q/Ctrl+C Quit\n\
-    \n\
-    Press any key to close";
+    let help_text = "Navigation: Up/k, Down/j, PgUp/PgDn
+Tab: panel focus   J/K: visual order only
+a: add URL/torrent   A: batch import
+p/r: pause/resume selected
+v: verify data   V: verify and repair
+Pause active downloads before verifying.
+c: cancel   d: cancel and delete files
+P/R: pause/resume all   C: cancel all
+S: settings (Esc saves, Ctrl+C quits)
+/: search   Ctrl+S: change search scope
+Enter: commit search   Esc: clear filter
+1: all   2: active   3: complete/seeding
+L: activity log   [/]: scroll activity
+?: help   q/Ctrl+C: quit safely
+
+Verification details appear in the activity log.
+Press any key to close";
 
     let block = btop_block("Help", theme, true);
 
@@ -69,7 +46,7 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
 
     match dialog {
         DialogState::AddUrl { input, cursor } => {
-            let area = centered_rect(65, 20, frame.area());
+            let area = dialog_rect(80, 9, frame.area());
             frame.render_widget(Clear, area);
 
             let block =
@@ -132,7 +109,7 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             }
         }
         DialogState::ConfirmCancel { id, delete_files } => {
-            let area = centered_rect(50, 20, frame.area());
+            let area = dialog_rect(80, 10, frame.area());
             frame.render_widget(Clear, area);
 
             let action = if *delete_files {
@@ -176,11 +153,13 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
 
             let block = btop_block("Confirm", theme, true).style(Style::default().bg(theme.bg));
 
-            let paragraph = Paragraph::new(content).block(block);
+            let paragraph = Paragraph::new(content)
+                .wrap(Wrap { trim: true })
+                .block(block);
             frame.render_widget(paragraph, area);
         }
         DialogState::ConfirmCancelAll => {
-            let area = centered_rect(50, 20, frame.area());
+            let area = dialog_rect(80, 10, frame.area());
             frame.render_widget(Clear, area);
 
             let count = app.downloads.len();
@@ -215,11 +194,30 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
             let block =
                 btop_block("Confirm Cancel All", theme, true).style(Style::default().bg(theme.bg));
 
-            let paragraph = Paragraph::new(content).block(block);
+            let paragraph = Paragraph::new(content)
+                .wrap(Wrap { trim: true })
+                .block(block);
             frame.render_widget(paragraph, area);
         }
+        DialogState::ConfirmRepair { .. } => {
+            let area = dialog_rect(85, 10, frame.area());
+            frame.render_widget(Clear, area);
+            let content = "Verify and repair selected download?
+
+HTTP: corrupt data is removed and downloaded again.
+Torrents: missing or bad pieces are fetched again.
+Pause active downloads first.
+
+y/Enter: repair   n/Esc: cancel";
+            frame.render_widget(
+                Paragraph::new(content)
+                    .wrap(Wrap { trim: true })
+                    .block(btop_block("Confirm Repair", theme, true)),
+                area,
+            );
+        }
         DialogState::Error { message } => {
-            let area = centered_rect(50, 20, frame.area());
+            let area = dialog_rect(80, 10, frame.area());
             frame.render_widget(Clear, area);
 
             let content = vec![
@@ -230,14 +228,16 @@ pub fn render_dialog(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  Press any key to close",
+                    "  Enter/Esc/q to close",
                     Style::default().fg(theme.overlay0),
                 )),
             ];
 
             let block = btop_block("Error", theme, true).style(Style::default().bg(theme.bg));
 
-            let paragraph = Paragraph::new(content).block(block);
+            let paragraph = Paragraph::new(content)
+                .wrap(Wrap { trim: true })
+                .block(block);
             frame.render_widget(paragraph, area);
         }
         // Settings and BatchImport are rendered by their own modules
@@ -276,4 +276,16 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+/// Keep interactive dialogs usable at ordinary 80x24 terminal sizes.
+pub fn dialog_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
+    let width = ((u32::from(area.width) * u32::from(percent_x)) / 100) as u16;
+    let height = height.min(area.height);
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    )
 }

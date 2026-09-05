@@ -50,10 +50,9 @@ async fn run() -> Result<i32> {
         return Ok(0);
     }
 
-    // Setup logging based on verbosity
-    setup_logging(cli.verbose, cli.quiet)?;
-
     let config = load_runtime_config(&cli)?;
+    let interactive = cfg!(feature = "tui") && cli.command.is_none() && cli.urls.is_empty();
+    setup_logging(cli.verbose, cli.quiet, &config, interactive)?;
 
     if cli.insecure {
         format::print_warning("TLS certificate verification disabled");
@@ -85,7 +84,7 @@ async fn run() -> Result<i32> {
         // No URLs and no subcommand - launch TUI
         #[cfg(feature = "tui")]
         {
-            run_tui(config).await?;
+            run_tui(config, cli.config).await?;
             Ok(0)
         }
         #[cfg(not(feature = "tui"))]
@@ -128,12 +127,17 @@ fn apply_cli_overrides(config: &mut config::CliConfig, cli: &Cli) {
     }
 }
 
-fn setup_logging(verbose: u8, quiet: bool) -> Result<()> {
+fn setup_logging(
+    verbose: u8,
+    quiet: bool,
+    config: &config::CliConfig,
+    interactive: bool,
+) -> Result<()> {
     let level = if quiet {
         "error"
     } else {
         match verbose {
-            0 => "warn",
+            0 => &config.general.log_level,
             1 => "info",
             2 => "debug",
             _ => "trace",
@@ -142,9 +146,29 @@ fn setup_logging(verbose: u8, quiet: bool) -> Result<()> {
 
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
+    let writer = if let Some(path) = &config.general.log_file {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)?,
+        )
+    } else if interactive {
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::sink)
+    } else {
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stderr)
+    };
     tracing_subscriber::registry()
         .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_target(false))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_ansi(!interactive && config.general.log_file.is_none())
+                .with_writer(writer),
+        )
         .init();
 
     Ok(())
@@ -156,13 +180,24 @@ async fn run_command(
     output_format: cli::OutputFormat,
     config_path: Option<std::path::PathBuf>,
 ) -> Result<i32> {
-    // Initialize the application (engine)
+    // Local metadata/configuration commands must not open the download database.
+    let cmd = match cmd {
+        Commands::Config(args) => {
+            return commands::config::execute(args, &config, config_path.as_deref())
+                .await
+                .map(|()| 0)
+        }
+        Commands::Info(args) => {
+            return commands::info::execute(args, output_format)
+                .await
+                .map(|()| 0)
+        }
+        other => other,
+    };
     let app = app::App::new(config).await?;
 
     let result = match cmd {
-        Commands::Add(args) => commands::add::execute(*args, &app, output_format)
-            .await
-            .map(|()| 0),
+        Commands::Add(args) => commands::add::execute(*args, &app, output_format).await,
         Commands::List(args) => commands::list::execute(args, &app, output_format)
             .await
             .map(|()| 0),
@@ -170,7 +205,7 @@ async fn run_command(
             .await
             .map(|()| 0),
         Commands::Pause(args) => commands::pause::execute(args, &app).await.map(|()| 0),
-        Commands::Resume(args) => commands::resume::execute(args, &app).await.map(|()| 0),
+        Commands::Resume(args) => commands::resume::execute(args, &app, output_format).await,
         Commands::Cancel(args) => commands::cancel::execute(args, &app).await.map(|()| 0),
         Commands::PauseAll => commands::batch::pause_all(&app, output_format).await,
         Commands::ResumeAll => commands::batch::resume_all(&app, output_format).await,
@@ -200,8 +235,8 @@ async fn run_command(
 }
 
 #[cfg(feature = "tui")]
-async fn run_tui(config: config::CliConfig) -> Result<()> {
-    let mut tui_app = tui::TuiApp::new(config).await?;
+async fn run_tui(config: config::CliConfig, config_path: Option<std::path::PathBuf>) -> Result<()> {
+    let mut tui_app = tui::TuiApp::new(config, config_path).await?;
     tui_app.run().await
 }
 

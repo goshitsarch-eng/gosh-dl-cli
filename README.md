@@ -1,7 +1,7 @@
 # gosh-dl-cli
 
 [![Crates.io](https://img.shields.io/crates/v/gosh-dl-cli)](https://crates.io/crates/gosh-dl-cli)
-[![docs.rs](https://img.shields.io/docsrs/gosh-dl-cli)](https://docs.rs/gosh-dl-cli)
+[![Engine docs](https://img.shields.io/docsrs/gosh-dl)](https://docs.rs/gosh-dl/0.6.2/gosh_dl/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A download manager for the terminal. HTTP/HTTPS with multi-connection acceleration, full BitTorrent support, and an optional TUI. Built on [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
@@ -10,17 +10,23 @@ A download manager for the terminal. HTTP/HTTPS with multi-connection accelerati
 
 - **HTTP/HTTPS downloads** with multi-connection acceleration, resume, retries, mirrors, checksum verification, and speed limits
 - **Full BitTorrent support** -- torrents and magnet links with DHT, PEX, LPD, sequential mode, file selection, and seed ratio control
-- **Recursive HTTP mirroring** (`gosh mirror`) -- crawl a directory listing and download everything under it, wget -r style, with depth limits, include/exclude globs, dry-run previews, and detached background jobs
+- **Recursive HTTP mirroring** (`gosh mirror`) -- crawl a directory listing and download everything under it, wget -r style, with depth limits, include/exclude globs, dry-run previews, and saved mirror jobs for later resume
 - **Three usage modes** -- aria2-style direct downloads with progress bars, a full-screen TUI, and scriptable subcommands with JSON output
 - **Batch operations** -- `pause-all`, `resume-all`, and `cancel-all` (CLI and TUI) with per-download outcome reporting
-- **Interactive TUI** -- live speed graphs, chunk visualization, search/filtering, activity log, settings editor, batch URL import, and mirror job tracking
+- **Interactive TUI** -- live speed graphs, estimated progress map, data verification/repair, search/filtering, activity log, settings editor, batch URL import, and mirror job tracking
 - **Persistent queue** -- downloads survive restarts via SQLite (default), aria2-style JSON sidecar files, or no persistence at all (`storage_backend`)
 - **Bandwidth scheduling** -- time-of-day and day-of-week speed limit rules
 - Cross-platform: Linux, macOS, and Windows
 
-### What's new in 0.5.0
+### What's new in 0.6.2
 
-Built on gosh-dl 0.5.0: the new `gosh mirror` command with job management, batch pause/resume/cancel commands and TUI keybindings (`P`/`R`/`C`), pluggable storage backends, a working TUI search filter, coalesced TUI redraws (much lower CPU), and a fix for doubled keystrokes in the TUI on Windows. Pausing now also holds queued downloads. See the [CHANGELOG](CHANGELOG.md) for the full list.
+Upgraded to gosh-dl 0.6.2, including authenticated HTTP probe fixes, safer
+nested paths, torrent pause/resume and repair fixes, and improved uTP recovery.
+CLI downloads now report failures correctly, `resume` stays in the foreground,
+and Ctrl+C preserves downloads for resume. Queued downloads and mirror jobs
+are explicitly saved paused. The release workflow publishes to crates.io using
+Trusted Publishing and ships all six platform binaries with checksums.
+See [CHANGELOG.md](CHANGELOG.md) and [ROLLOUT.md](ROLLOUT.md) for details.
 
 ## Screenshots
 
@@ -28,7 +34,7 @@ Built on gosh-dl 0.5.0: the new `gosh mirror` command with job management, batch
 
 ## Install
 
-From source (requires Rust 1.85+):
+From source (requires Rust 1.88+):
 
 ```bash
 git clone https://github.com/goshitsarch-eng/gosh-dl-cli
@@ -40,7 +46,7 @@ cp target/release/gosh ~/.local/bin/   # or /usr/local/bin/
 From crates.io:
 
 ```bash
-cargo install gosh-dl-cli
+cargo install gosh-dl-cli --version 0.6.2 --locked
 ```
 
 Arch Linux (AUR):
@@ -52,7 +58,7 @@ yay -S gosh-dl-cli
 Without the TUI (smaller binary, fewer dependencies):
 
 ```bash
-cargo install gosh-dl-cli --no-default-features
+cargo install gosh-dl-cli --version 0.6.2 --locked --no-default-features
 ```
 
 Pre-built binaries are available on [GitHub Releases](https://github.com/goshitsarch-eng/gosh-dl-cli/releases). Linux builds are statically linked with musl.
@@ -102,6 +108,17 @@ gosh has three modes:
 
 **Command mode** -- use subcommands (`gosh add`, `gosh list`, etc.) for scripting and automation.
 
+`gosh` has no daemon or IPC service. Use one process per storage location:
+subcommands operate on saved state and do not control another running TUI or
+CLI process. For background transfers, keep a foreground command running in
+a terminal multiplexer or a service manager. `--enqueue` (formerly described
+as `--detach`) saves a paused mirror; it does not leave a worker running.
+
+Ctrl+C in direct downloads, `add --wait`, `resume`, and foreground mirrors
+pauses unfinished work and exits with code 130. With SQLite or file storage,
+use `gosh resume all` or the TUI to continue. With `storage_backend = "none"`,
+no state survives exit, so queue-only commands are rejected.
+
 ## CLI reference
 
 ### Global options
@@ -116,7 +133,7 @@ These work with any mode or subcommand:
 | `--output <FORMAT>` | Output format: `table`, `json`, `json-pretty` |
 | `--color <WHEN>` | Color output: `auto`, `always`, `never` |
 | `--proxy <URL>` | Proxy URL (`http://`, `https://`, `socks5://`) |
-| `--max-retries <N>` | Max retry attempts for failed downloads |
+| `--max-retries <N>` | Maximum HTTP attempts including the first; must be at least 1 |
 
 ### Direct mode options
 
@@ -143,14 +160,16 @@ Used when passing URLs directly (`gosh [OPTIONS] <URL>...`):
 
 ### Subcommands
 
-**`gosh add <URL>...`** -- Add downloads to the queue.
+**`gosh add <URL>...`** -- Save downloads paused for later resume. Use `--wait`
+to download now and wait for completion. Saving without `--wait` requires
+SQLite or file storage.
 
 Accepts all the direct mode options above, plus:
 
 | Flag | Description |
 |------|-------------|
 | `-p, --priority <LEVEL>` | `low`, `normal`, `high`, `critical` |
-| `-w, --wait` | Block until download completes |
+| `-w, --wait` | Download in the foreground and return its success/failure exit code |
 | `-i, --input-file <FILE>` | Read URLs from a file (one per line) |
 
 **`gosh list`** -- List all downloads.
@@ -169,7 +188,7 @@ Accepts all the direct mode options above, plus:
 
 **`gosh pause <ID>...`** -- Pause downloads. Use `all` to pause everything.
 
-**`gosh resume <ID>...`** -- Resume paused downloads. Use `all` to resume everything.
+**`gosh resume <ID>...`** -- Resume paused downloads and wait for completion. Use `all` to resume everything.
 
 **`gosh cancel <ID>...`** -- Cancel downloads.
 
@@ -178,7 +197,7 @@ Accepts all the direct mode options above, plus:
 | `--delete` | Also delete downloaded files |
 | `-y, --yes` | Skip confirmation |
 
-**`gosh pause-all`** / **`gosh resume-all`** / **`gosh cancel-all`** -- Batch operations across every download, reporting per-download outcomes (succeeded / skipped / failed).
+**`gosh pause-all`** / **`gosh resume-all`** / **`gosh cancel-all`** -- Batch operations across saved downloads, reporting per-download outcomes (succeeded / skipped / failed). `resume-all` remains in the foreground until the resumed downloads finish.
 
 | Flag (`cancel-all`) | Description |
 |------|-------------|
@@ -214,8 +233,8 @@ gosh mirror --dry-run --depth 2 https://ftp.gnu.org/gnu/hello/
 gosh mirror -d ~/mirrors --depth 2 --include '*.iso' --include '*.sig' \
     https://example.com/releases/
 
-# Start the mirror and return immediately; manage it later
-gosh mirror --detach https://example.com/files/
+# Save the mirror paused for later resume
+gosh mirror --enqueue https://example.com/files/
 gosh mirror list
 gosh mirror status <ID>
 gosh mirror cancel <ID>
@@ -235,7 +254,7 @@ gosh mirror remove <ID> --delete-files
 | `--fail-fast` | Abort remaining files after the first failure |
 | `--discovery-concurrency <N>` | Concurrent page-fetch requests (default: 4) |
 | `--dry-run` | Discover and list files without downloading |
-| `--detach` | Add the job and exit without waiting |
+| `--enqueue` (alias `--detach`) | Save the mirror paused for later resume; requires persistence |
 
 HTTP options from direct mode (`-H`, `--user-agent`, `--referer`, `--cookie`, `-x`, `--max-speed`) also apply to each mirrored file. Overall download parallelism is governed by `engine.max_concurrent_downloads` in the config; `--discovery-concurrency` only affects the page crawl.
 
@@ -246,26 +265,48 @@ Mirror exit codes follow the standard table below: `0` all files completed, `1` 
 | Key | Action |
 |-----|--------|
 | `a` | Add new download |
-| `A` | Batch import URLs |
+| `A` | Batch import URLs (F2 reviews, Enter imports selected entries) |
 | `p` | Pause selected |
 | `r` | Resume selected |
+| `v` | Verify selected download on disk |
+| `V` | Verify and repair selected (confirmation required) |
 | `c` | Cancel selected |
 | `d` | Cancel and delete files |
 | `P` | Pause ALL downloads (including queued) |
 | `R` | Resume ALL paused downloads |
 | `C` | Cancel ALL downloads (with confirmation) |
 | `/` | Search/filter the list (Ctrl+S cycles scope, Enter commits, Esc clears) |
-| `S` | Open settings |
+| `S` | Open settings; Esc saves and closes |
 | `L` | Toggle activity log |
 | `[` / `]` | Scroll activity log |
 | Tab | Cycle right-panel focus |
-| `1` / `2` / `3` | View all / active / completed |
+| `1` / `2` / `3` | View all / active / completed or seeding |
 | `j`/`k` or arrows | Navigate |
 | PgUp / PgDn | Scroll page |
+| `J` / `K` | Reorder the visible list only (does not change download priority) |
 | `?` | Toggle help overlay |
 | `q` or Ctrl+C | Quit |
 
-The details panel at the bottom shows a speed graph sparkline for the selected download. Active mirror jobs appear as a compact counter in the top bar.
+The details panel shows the selected download's progress, error, path, connections,
+and priority. Speed charts show aggregate engine traffic. Active mirror jobs
+appear as a compact counter in the top bar. The progress map is estimated from
+completed bytes; it is not an actual segment/piece bitmap.
+
+Pause active downloads before using `v` or `V`. Verification runs in the background;
+results stay in the activity log (`L`). HTTP verification uses the stored checksum
+when available, otherwise presence/size only (same-size corruption is undetectable).
+Repair removes corrupt HTTP data and restarts it, or queues missing/bad torrent
+pieces. A “repair queued” result is not a completed download.
+
+Settings honor `--config`; failed saves retain the draft. Theme, refresh rate,
+graph/peer visibility, concurrency, and global bandwidth limits update immediately.
+Restart for storage, logging, and network client changes. Ctrl+C exits from any
+dialog. Help and add/settings/import dialogs support ordinary 80×24 terminals;
+very small windows show a reduced layout.
+
+Logs use `general.log_level` unless overridden by `-v`, `--quiet`, or `RUST_LOG`.
+Set `general.log_file` to retain diagnostics. The TUI suppresses console logs so
+they cannot overwrite the interface; command mode logs go to stderr by default.
 
 ## Configuration
 
@@ -276,7 +317,8 @@ Override the path with `-c <PATH>` or the `GOSH_CONFIG` environment variable.
 ```toml
 [general]
 download_dir = "~/Downloads"
-log_level = "info"                      # trace, debug, info, warn, error
+log_level = "info"                      # overridden by -v / --quiet / RUST_LOG
+# log_file = "/path/to/gosh.log"         # optional; useful for TUI diagnostics
 storage_backend = "sqlite"              # sqlite (default), file (JSON sidecars), none
 
 [engine]
@@ -333,21 +375,50 @@ Proxy precedence: `--proxy` flag > config file > `HTTPS_PROXY` > `HTTP_PROXY` > 
 
 | Code | Meaning |
 |------|---------|
-| 0 | All downloads completed |
-| 1 | Some downloads failed |
-| 2 | All downloads failed |
-| 130 | Interrupted (Ctrl+C) |
+| 0 | Command succeeded; foreground downloads completed, or queue-only work was saved |
+| 1 | Some downloads failed, or configuration/command validation failed |
+| 2 | All monitored downloads failed, or argument parsing failed |
+| 130 | Interrupted (Ctrl+C); unfinished work paused for resume when persistence is enabled |
 
 ## Building from source
 
 ```bash
-cargo build                     # debug build
-cargo build --release           # optimized (LTO + stripped)
-cargo test                      # run tests
-cargo build --no-default-features --release   # without TUI
+cargo build --locked            # debug build
+cargo build --locked --release  # optimized (LTO + stripped)
+cargo test --locked             # run tests
+cargo build --locked --no-default-features --release   # without TUI
 ```
 
 Release builds use thin LTO, symbol stripping, and single codegen unit for smaller binaries.
+
+## Releasing
+
+Changes to `Cargo.toml` or `CHANGELOG.md` on `main` trigger the release workflow.
+It can also be run manually on `main`. CI checks formatting, Clippy, Rust 1.88,
+and default/TUI-free tests on Linux, macOS, and Windows. It builds six release
+archives: Linux musl, macOS, and Windows, each for x86_64 and ARM64.
+
+After validation, the workflow verifies the Cargo package, publishes to
+crates.io with a short-lived GitHub OIDC token, and creates a GitHub release
+with the six binaries, `.crate` source package, and `SHA256SUMS`.
+
+A crate owner must first add this separate publisher under
+[gosh-dl-cli Settings → Trusted Publishing](https://crates.io/crates/gosh-dl-cli/settings):
+
+| Setting | Value |
+| --- | --- |
+| Provider | GitHub |
+| Repository owner | `goshitsarch-eng` |
+| Repository name | `gosh-dl-cli` |
+| Workflow filename | `release.yml` |
+| Environment | Leave empty |
+
+The publisher configured for `gosh-dl` does not authorize `gosh-dl-cli`.
+No `cargo login` or permanent API token is needed after setup. Configure the
+publisher before merging the release PR. If publishing fails, fix the reported
+problem and rerun the failed jobs in Actions. An already-published version is
+accepted only if its checksum matches the package and it is not yanked;
+existing GitHub releases are left unchanged.
 
 ## License
 

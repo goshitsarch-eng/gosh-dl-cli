@@ -30,6 +30,7 @@ pub fn render_toasts(frame: &mut Frame, app: &TuiApp) {
         let fading = age > 3.0;
 
         let (icon, border_color) = match toast.level {
+            ToastLevel::Info => ("i ", theme.accent),
             ToastLevel::Success => ("\u{2713} ", theme.success),
             ToastLevel::Error => ("\u{2717} ", theme.error),
         };

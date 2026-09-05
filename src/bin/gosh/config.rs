@@ -220,6 +220,18 @@ impl CliConfig {
 
     /// Validate configuration values, returning an error for invalid settings
     pub fn validate(&self) -> Result<()> {
+        if !matches!(
+            self.general.log_level.as_str(),
+            "off" | "error" | "warn" | "info" | "debug" | "trace"
+        ) {
+            anyhow::bail!("general.log_level must be off, error, warn, info, debug, or trace");
+        }
+        if !matches!(
+            self.tui.theme.to_lowercase().as_str(),
+            "dark" | "light" | "mocha" | "latte" | "macchiato"
+        ) {
+            anyhow::bail!("tui.theme must be dark, light, mocha, latte, or macchiato");
+        }
         if self.engine.max_concurrent_downloads == 0 {
             anyhow::bail!("engine.max_concurrent_downloads must be at least 1");
         }
@@ -238,10 +250,34 @@ impl CliConfig {
         if self.tui.refresh_rate_ms == 0 {
             anyhow::bail!("tui.refresh_rate_ms must be at least 1");
         }
-        if self.engine.seed_ratio < 0.0 {
-            anyhow::bail!("engine.seed_ratio must not be negative");
+        if self.engine.max_retries == 0 || self.engine.max_retries > u32::MAX as usize {
+            anyhow::bail!(
+                "engine.max_retries must be between 1 and {} (HTTP attempts including the first)",
+                u32::MAX
+            );
+        }
+        if !self.engine.seed_ratio.is_finite() || self.engine.seed_ratio < 0.0 {
+            anyhow::bail!("engine.seed_ratio must be finite and non-negative");
         }
         for (i, rule) in self.schedule.rules.iter().enumerate() {
+            let days = rule.days.trim().to_ascii_lowercase();
+            if !matches!(days.as_str(), "all" | "" | "weekdays" | "weekends")
+                && !days.split(',').all(|day| {
+                    matches!(
+                        day.trim(),
+                        "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+                    )
+                })
+            {
+                anyhow::bail!("schedule.rules[{}].days contains an invalid day", i);
+            }
+            for limit in [&rule.download_limit, &rule.upload_limit]
+                .into_iter()
+                .flatten()
+            {
+                parse_speed(limit)
+                    .with_context(|| format!("Invalid speed in schedule.rules[{}]", i))?;
+            }
             if rule.start_hour > 23 {
                 anyhow::bail!("schedule.rules[{}].start_hour must be 0-23", i);
             }
@@ -304,7 +340,7 @@ impl CliConfig {
         let config_path = path.map(PathBuf::from).unwrap_or_else(Self::default_path);
 
         // Create parent directories if they don't exist
-        if let Some(parent) = config_path.parent() {
+        if let Some(parent) = config_path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent).with_context(|| {
                 format!("Failed to create config directory: {}", parent.display())
             })?;
@@ -320,7 +356,7 @@ impl CliConfig {
 }
 
 fn parse_schedule_days(s: &str) -> Vec<Weekday> {
-    match s.to_lowercase().as_str() {
+    match s.trim().to_lowercase().as_str() {
         "all" | "" => Vec::new(),
         "weekdays" => vec![
             Weekday::Mon,

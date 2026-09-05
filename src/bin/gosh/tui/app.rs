@@ -29,6 +29,8 @@ pub struct TuiApp {
 
     /// Application configuration
     config: CliConfig,
+    config_path: Option<std::path::PathBuf>,
+    integrity_task: Option<tokio::task::JoinHandle<(bool, gosh_dl::Result<gosh_dl::VerifyReport>)>>,
 
     /// Color theme
     theme: Theme,
@@ -117,10 +119,6 @@ pub struct TuiApp {
     /// Active recursive mirror jobs, keyed by tracked job ID
     pub recursive_jobs: HashMap<uuid::Uuid, RecursiveJobStatus>,
 
-    /// Set when state changed without an immediate redraw; flushed on the
-    /// next tick so engine-event floods coalesce into the tick cadence
-    dirty: bool,
-
     /// Should quit
     should_quit: bool,
 }
@@ -157,6 +155,9 @@ pub enum DialogState {
         delete_files: bool,
     },
     ConfirmCancelAll,
+    ConfirmRepair {
+        id: gosh_dl::DownloadId,
+    },
     Error {
         message: String,
     },
@@ -272,12 +273,13 @@ pub struct Toast {
 
 #[derive(Clone, Copy)]
 pub enum ToastLevel {
+    Info,
     Success,
     Error,
 }
 
 impl TuiApp {
-    pub async fn new(config: CliConfig) -> Result<Self> {
+    pub async fn new(config: CliConfig, config_path: Option<std::path::PathBuf>) -> Result<Self> {
         let engine = crate::app::create_engine(&config).await?;
 
         // Get initial download list
@@ -298,6 +300,8 @@ impl TuiApp {
         Ok(Self {
             engine,
             config,
+            config_path,
+            integrity_task: None,
             theme,
             mode: ViewMode::All,
             downloads,
@@ -327,13 +331,97 @@ impl TuiApp {
             show_activity_log: false,
             activity_log_scroll: 0,
             recursive_jobs: HashMap::new(),
-            dirty: false,
             should_quit: false,
         })
     }
 
     pub fn theme(&self) -> &Theme {
         &self.theme
+    }
+
+    pub fn show_speed_graph(&self) -> bool {
+        self.config.tui.show_speed_graph
+    }
+
+    pub fn show_peers(&self) -> bool {
+        self.config.tui.show_peers
+    }
+
+    fn save_settings(&mut self, config: CliConfig) -> Result<()> {
+        config.validate()?;
+        std::fs::create_dir_all(&config.general.download_dir)?;
+        let engine_config = config.to_engine_config();
+        engine_config.validate()?;
+        config.save(self.config_path.as_deref())?;
+        self.engine.set_config(engine_config)?;
+        self.theme = Theme::from_name(&config.tui.theme);
+        self.config = config;
+        Ok(())
+    }
+
+    fn start_integrity(&mut self, id: gosh_dl::DownloadId, repair: bool) {
+        if self.integrity_task.is_some() {
+            self.push_toast(
+                "An integrity check is already running".into(),
+                ToastLevel::Info,
+            );
+            return;
+        }
+        let engine = self.engine.clone();
+        self.integrity_task = Some(tokio::spawn(async move {
+            let result = if repair {
+                engine.repair(id).await
+            } else {
+                engine.verify(id).await
+            };
+            (repair, result)
+        }));
+        self.push_toast("Checking data on disk…".into(), ToastLevel::Info);
+    }
+
+    async fn finish_integrity(&mut self) {
+        if !self
+            .integrity_task
+            .as_ref()
+            .is_some_and(|task| task.is_finished())
+        {
+            return;
+        }
+        let result = self.integrity_task.take().unwrap().await;
+        let (message, failed) = match result {
+            Ok((repair, Ok(report))) => {
+                let action = if repair && !report.valid {
+                    "Repair queued; watch download progress. "
+                } else if report.valid {
+                    "Verification passed. "
+                } else {
+                    "Verification failed. Use Shift+V to repair. "
+                };
+                (
+                    format!("{action}{}", report.detail),
+                    !report.valid && !repair,
+                )
+            }
+            Ok((_, Err(e))) => (e.to_string(), true),
+            Err(e) => (format!("Integrity check failed: {e}"), true),
+        };
+        self.push_activity(
+            if failed {
+                ActivityLevel::Error
+            } else {
+                ActivityLevel::Info
+            },
+            message.clone(),
+        );
+        self.push_toast(
+            message,
+            if failed {
+                ToastLevel::Error
+            } else {
+                ToastLevel::Success
+            },
+        );
+        self.refresh_downloads();
     }
 
     fn reorder_download(&mut self, direction: i32) {
@@ -371,15 +459,19 @@ impl TuiApp {
 
     /// Run the TUI event loop
     pub async fn run(&mut self) -> Result<()> {
-        // Install panic hook that restores the terminal before printing the panic
-        let original_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |panic_info| {
-            let _ = disable_raw_mode();
-            let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            original_hook(panic_info);
-        }));
+        let result = self.run_terminal().await;
+        // Let verification/repair finish before shutting its engine down.
+        if let Some(task) = self.integrity_task.take() {
+            let _ = task.await;
+        }
+        let shutdown = self.engine.shutdown().await;
+        result?;
+        shutdown?;
+        Ok(())
+    }
 
-        // Setup terminal
+    async fn run_terminal(&mut self) -> Result<()> {
+        let _guard = TerminalGuard::new();
         let mut terminal = setup_terminal()?;
 
         // Create event handler
@@ -405,6 +497,7 @@ impl TuiApp {
         loop {
             let mut draw = false;
 
+            event_handler.set_tick_rate(Duration::from_millis(self.config.tui.refresh_rate_ms));
             match event_handler.next().await? {
                 AppEvent::Terminal(event) => {
                     if self.handle_terminal_event(&event).await? {
@@ -415,18 +508,20 @@ impl TuiApp {
                 }
                 AppEvent::Engine(event) => {
                     self.handle_engine_event(event);
-                    self.dirty = true;
                 }
                 AppEvent::RecursiveJob(event) => {
                     self.handle_recursive_event(event);
-                    self.dirty = true;
                 }
                 AppEvent::Tick => {
+                    self.finish_integrity().await;
+                    self.refresh_downloads();
                     self.update_stats();
                     draw = true;
                 }
                 AppEvent::Resync => {
                     // Full resync after missed broadcast events
+                    self.refresh_downloads();
+                    self.finish_integrity().await;
                     self.refresh_downloads();
                     self.update_stats();
                     draw = true;
@@ -443,26 +538,20 @@ impl TuiApp {
                 break;
             }
 
-            if draw || self.dirty {
-                self.dirty = false;
+            if draw {
                 terminal.draw(|frame| ui::render(frame, self))?;
             }
         }
-
-        // Restore terminal
-        restore_terminal(terminal)?;
-
-        // Restore original panic hook now that the terminal is back to normal
-        let _ = std::panic::take_hook();
-
-        // Shutdown engine
-        self.engine.shutdown().await?;
 
         Ok(())
     }
 
     /// Handle terminal input events
     async fn handle_terminal_event(&mut self, event: &crossterm::event::Event) -> Result<bool> {
+        // Ctrl+C works even while a dialog or search field has focus.
+        if event::is_ctrl_c(event) {
+            return Ok(true);
+        }
         // Handle dialog input first
         if let Some(ref mut dialog) = self.dialog {
             match dialog {
@@ -487,21 +576,17 @@ impl TuiApp {
                                 input.insert(byte_pos, c);
                                 *cursor += 1;
                             }
-                            crossterm::event::KeyCode::Backspace => {
-                                if *cursor > 0 {
-                                    *cursor -= 1;
-                                    let byte_pos = input
-                                        .char_indices()
-                                        .nth(*cursor)
-                                        .map(|(i, _)| i)
-                                        .unwrap_or(input.len());
-                                    input.remove(byte_pos);
-                                }
+                            crossterm::event::KeyCode::Backspace if *cursor > 0 => {
+                                *cursor -= 1;
+                                let byte_pos = input
+                                    .char_indices()
+                                    .nth(*cursor)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(input.len());
+                                input.remove(byte_pos);
                             }
-                            crossterm::event::KeyCode::Left => {
-                                if *cursor > 0 {
-                                    *cursor -= 1;
-                                }
+                            crossterm::event::KeyCode::Left if *cursor > 0 => {
+                                *cursor -= 1;
                             }
                             crossterm::event::KeyCode::Right if *cursor < input.chars().count() => {
                                 *cursor += 1;
@@ -536,6 +621,16 @@ impl TuiApp {
                     }
                     return Ok(false);
                 }
+                DialogState::ConfirmRepair { id } => {
+                    if event::is_escape(event) || event::is_key(event, 'n') {
+                        self.dialog = None;
+                    } else if event::is_key(event, 'y') || event::is_enter(event) {
+                        let id = *id;
+                        self.dialog = None;
+                        self.start_integrity(id, true);
+                    }
+                    return Ok(false);
+                }
                 DialogState::Error { .. } => {
                     if event::is_escape(event)
                         || event::is_enter(event)
@@ -560,13 +655,21 @@ impl TuiApp {
                                 }
                                 crossterm::event::KeyCode::Enter => {
                                     if let Some(val) = editing.take() {
-                                        Self::apply_settings_edit(
+                                        match Self::apply_settings_edit(
                                             draft,
                                             *active_tab,
                                             *selected_row,
                                             &val,
-                                        );
-                                        *dirty = true;
+                                        ) {
+                                            Ok(()) => *dirty = true,
+                                            Err(e) => {
+                                                *editing = Some(val);
+                                                self.push_toast(
+                                                    format!("Invalid setting: {e}"),
+                                                    ToastLevel::Error,
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                                 crossterm::event::KeyCode::Backspace => {
@@ -586,46 +689,32 @@ impl TuiApp {
                                 crossterm::event::KeyCode::Esc => {
                                     if *dirty {
                                         let new_config = *draft.clone();
-                                        match new_config.validate() {
-                                            Ok(()) => {
-                                                let _ = new_config.save(None);
-                                                self.config = new_config;
-                                                let engine_cfg = self.config.to_engine_config();
-                                                let _ = self.engine.set_config(engine_cfg);
-                                                self.theme =
-                                                    Theme::from_name(&self.config.tui.theme);
-                                                self.push_toast(
-                                                    "Settings saved".to_string(),
-                                                    ToastLevel::Success,
-                                                );
-                                            }
+                                        match self.save_settings(new_config) {
+                                            Ok(()) => self.push_toast(
+                                                "Settings saved; network/storage changes need restart".into(),
+                                                ToastLevel::Success,
+                                            ),
                                             Err(e) => {
-                                                self.push_toast(
-                                                    format!("Settings discarded: {e}"),
-                                                    ToastLevel::Error,
-                                                );
+                                                self.push_toast(format!("Settings not saved: {e}"), ToastLevel::Error);
+                                                return Ok(false);
                                             }
                                         }
                                     }
                                     self.dialog = None;
                                 }
-                                crossterm::event::KeyCode::Left => {
-                                    if *active_tab > 0 {
-                                        *active_tab -= 1;
-                                        *selected_row = 0;
-                                    }
+                                crossterm::event::KeyCode::Left if *active_tab > 0 => {
+                                    *active_tab -= 1;
+                                    *selected_row = 0;
                                 }
-                                crossterm::event::KeyCode::Right => {
-                                    if *active_tab < 4 {
-                                        *active_tab += 1;
-                                        *selected_row = 0;
-                                    }
+                                crossterm::event::KeyCode::Right if *active_tab < 4 => {
+                                    *active_tab += 1;
+                                    *selected_row = 0;
                                 }
                                 crossterm::event::KeyCode::Up
-                                | crossterm::event::KeyCode::Char('k') => {
-                                    if *selected_row > 0 {
-                                        *selected_row -= 1;
-                                    }
+                                | crossterm::event::KeyCode::Char('k')
+                                    if *selected_row > 0 =>
+                                {
+                                    *selected_row -= 1;
                                 }
                                 crossterm::event::KeyCode::Down
                                 | crossterm::event::KeyCode::Char('j') => {
@@ -646,7 +735,7 @@ impl TuiApp {
                                             *selected_row,
                                         );
                                         *dirty = true;
-                                    } else {
+                                    } else if *active_tab != 4 {
                                         *editing = Some(Self::get_settings_value(
                                             draft,
                                             *active_tab,
@@ -671,8 +760,11 @@ impl TuiApp {
                                 crossterm::event::KeyCode::Esc => {
                                     self.dialog = None;
                                 }
-                                crossterm::event::KeyCode::Enter => {
-                                    if key.modifiers == crossterm::event::KeyModifiers::CONTROL {
+                                crossterm::event::KeyCode::Enter
+                                | crossterm::event::KeyCode::F(2) => {
+                                    if key.modifiers == crossterm::event::KeyModifiers::CONTROL
+                                        || key.code == crossterm::event::KeyCode::F(2)
+                                    {
                                         let lines: Vec<String> = text
                                             .lines()
                                             .map(|l| l.trim().to_string())
@@ -786,16 +878,16 @@ impl TuiApp {
                                     };
                                 }
                                 crossterm::event::KeyCode::Up
-                                | crossterm::event::KeyCode::Char('k') => {
-                                    if *selected > 0 {
-                                        *selected -= 1;
-                                    }
+                                | crossterm::event::KeyCode::Char('k')
+                                    if *selected > 0 =>
+                                {
+                                    *selected -= 1;
                                 }
                                 crossterm::event::KeyCode::Down
-                                | crossterm::event::KeyCode::Char('j') => {
-                                    if *selected + 1 < entries.len() {
-                                        *selected += 1;
-                                    }
+                                | crossterm::event::KeyCode::Char('j')
+                                    if *selected + 1 < entries.len() =>
+                                {
+                                    *selected += 1;
                                 }
                                 crossterm::event::KeyCode::Char(' ') => {
                                     if let Some(e) = entries.get_mut(*selected) {
@@ -809,16 +901,21 @@ impl TuiApp {
                                         .map(|e| e.url.clone())
                                         .collect();
                                     self.dialog = None;
-                                    let count = urls.len();
+                                    let total = urls.len();
+                                    let mut count = 0;
                                     for url in urls {
-                                        let _ = self.add_download(&url).await;
+                                        if self.add_download(&url).await? {
+                                            count += 1;
+                                        }
                                     }
-                                    if count > 0 {
-                                        self.push_toast(
-                                            format!("Added {} downloads", count),
-                                            ToastLevel::Success,
-                                        );
-                                    }
+                                    self.push_toast(
+                                        format!("Added {count}/{total} downloads"),
+                                        if count == total {
+                                            ToastLevel::Success
+                                        } else {
+                                            ToastLevel::Error
+                                        },
+                                    );
                                     return Ok(false);
                                 }
                                 _ => {}
@@ -953,6 +1050,14 @@ impl TuiApp {
         } else if event::is_key(event, 'r') {
             // Resume selected
             self.resume_selected().await?;
+        } else if event::is_key(event, 'v') {
+            if let Some(dl) = self.selected_download() {
+                self.start_integrity(dl.id, false);
+            }
+        } else if event::is_upper_key(event, 'V') {
+            if let Some(dl) = self.selected_download() {
+                self.dialog = Some(DialogState::ConfirmRepair { id: dl.id });
+            }
         } else if event::is_key(event, 'c') || event::is_key(event, 'd') {
             // Cancel selected (with confirmation)
             if let Some(dl) = self.selected_download() {
@@ -1292,16 +1397,25 @@ impl TuiApp {
         // Preserve the selected download across the rebuild
         let keep = self.selected_download().map(|d| d.id);
 
+        let order: HashMap<_, _> = self
+            .downloads
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (d.id, i))
+            .collect();
         self.downloads = match self.mode {
             ViewMode::All => self.engine.list(),
             ViewMode::Active => self.engine.active(),
             ViewMode::Completed => self
                 .engine
-                .stopped()
+                .list()
                 .into_iter()
-                .filter(|d| matches!(d.state, DownloadState::Completed))
+                .filter(|d| matches!(d.state, DownloadState::Completed | DownloadState::Seeding))
                 .collect(),
         };
+
+        self.downloads
+            .sort_by_key(|d| order.get(&d.id).copied().unwrap_or(usize::MAX));
 
         // Apply the search filter
         if let Some(ref search) = self.search {
@@ -1353,6 +1467,7 @@ impl TuiApp {
 
     /// Adjust scroll offset to keep selected item visible
     pub fn adjust_scroll(&mut self, visible_height: usize) {
+        let visible_height = visible_height.max(1);
         let total = self.downloads.len();
         if self.selected < self.scroll_offset {
             self.scroll_offset = self.selected;
@@ -1383,28 +1498,35 @@ impl TuiApp {
     }
 
     /// Add a new download
-    async fn add_download(&mut self, url: &str) -> Result<()> {
+    async fn add_download(&mut self, url: &str) -> Result<bool> {
         use crate::input::url_parser::{parse_input, ParsedInput};
 
-        let input = parse_input(url)?;
-        let options = gosh_dl::DownloadOptions::default();
+        let result: Result<_> = async {
+            let input = parse_input(url.trim())?;
+            let options = gosh_dl::DownloadOptions::default();
 
-        let result = match input {
-            ParsedInput::Http(url) => self.engine.add_http(&url, options).await,
-            ParsedInput::Magnet(uri) => self.engine.add_magnet(&uri, options).await,
-            ParsedInput::TorrentFile(path) => {
-                let data = tokio::fs::read(&path).await?;
-                self.engine.add_torrent(&data, options).await
-            }
-        };
+            let result = match input {
+                ParsedInput::Http(url) => self.engine.add_http(&url, options).await,
+                ParsedInput::Magnet(uri) => self.engine.add_magnet(&uri, options).await,
+                ParsedInput::TorrentFile(path) => {
+                    let data = tokio::fs::read(&path).await?;
+                    self.engine.add_torrent(&data, options).await
+                }
+            };
 
-        if let Err(e) = result {
-            self.dialog = Some(DialogState::Error {
-                message: e.to_string(),
-            });
+            Ok(result?)
         }
-
-        Ok(())
+        .await;
+        match result {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                self.push_activity(ActivityLevel::Error, format!("Could not add download: {e}"));
+                self.dialog = Some(DialogState::Error {
+                    message: e.to_string(),
+                });
+                Ok(false)
+            }
+        }
     }
 
     /// Pause selected download
@@ -1446,10 +1568,8 @@ impl TuiApp {
     // Settings helper: toggle a boolean setting
     pub fn toggle_settings_bool(draft: &mut CliConfig, tab: usize, row: usize) {
         match tab {
-            1 => {
-                if row == 10 {
-                    draft.engine.accept_invalid_certs = !draft.engine.accept_invalid_certs;
-                }
+            1 if row == 10 => {
+                draft.engine.accept_invalid_certs = !draft.engine.accept_invalid_certs;
             }
             2 => match row {
                 0 => draft.engine.enable_dht = !draft.engine.enable_dht,
@@ -1558,7 +1678,7 @@ impl TuiApp {
             0 => match row {
                 0 => "Download Directory",
                 1 => "Database Path",
-                2 => "Log Level",
+                2 => "Log Level (restart)",
                 _ => "",
             },
             1 => match row {
@@ -1571,7 +1691,7 @@ impl TuiApp {
                 6 => "Proxy URL",
                 7 => "Connect Timeout (sec)",
                 8 => "Read Timeout (sec)",
-                9 => "Max Retries",
+                9 => "Max HTTP Attempts",
                 10 => "Accept Invalid Certs",
                 _ => "",
             },
@@ -1613,7 +1733,7 @@ impl TuiApp {
     }
 
     // Settings helper: apply edit value to draft config
-    fn apply_settings_edit(draft: &mut CliConfig, tab: usize, row: usize, val: &str) {
+    fn apply_settings_edit(draft: &mut CliConfig, tab: usize, row: usize, val: &str) -> Result<()> {
         match tab {
             0 => match row {
                 0 => draft.general.download_dir = std::path::PathBuf::from(val),
@@ -1623,25 +1743,20 @@ impl TuiApp {
             },
             1 => match row {
                 0 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.max_concurrent_downloads = v;
-                    }
+                    draft.engine.max_concurrent_downloads = val.parse()?;
                 }
                 1 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.max_connections_per_download = v;
-                    }
+                    draft.engine.max_connections_per_download = val.parse()?;
                 }
                 2 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.min_segment_size = v;
-                    }
+                    draft.engine.min_segment_size = val.parse()?;
                 }
                 3 => {
-                    draft.engine.global_download_limit = val.parse().ok().filter(|&v: &u64| v > 0);
+                    draft.engine.global_download_limit =
+                        Some(val.parse::<u64>()?).filter(|&v| v > 0);
                 }
                 4 => {
-                    draft.engine.global_upload_limit = val.parse().ok().filter(|&v: &u64| v > 0);
+                    draft.engine.global_upload_limit = Some(val.parse::<u64>()?).filter(|&v| v > 0);
                 }
                 5 => {
                     draft.engine.user_agent = val.to_string();
@@ -1654,40 +1769,28 @@ impl TuiApp {
                     };
                 }
                 7 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.connect_timeout = v;
-                    }
+                    draft.engine.connect_timeout = val.parse()?;
                 }
                 8 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.read_timeout = v;
-                    }
+                    draft.engine.read_timeout = val.parse()?;
                 }
                 9 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.max_retries = v;
-                    }
+                    draft.engine.max_retries = val.parse()?;
                 }
                 _ => {}
             },
             2 => match row {
                 3 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.max_peers = v;
-                    }
+                    draft.engine.max_peers = val.parse()?;
                 }
                 4 => {
-                    if let Ok(v) = val.parse() {
-                        draft.engine.seed_ratio = v;
-                    }
+                    draft.engine.seed_ratio = val.parse()?;
                 }
                 _ => {}
             },
             3 => match row {
                 0 => {
-                    if let Ok(v) = val.parse() {
-                        draft.tui.refresh_rate_ms = v;
-                    }
+                    draft.tui.refresh_rate_ms = val.parse()?;
                 }
                 1 => {
                     draft.tui.theme = val.to_string();
@@ -1696,6 +1799,7 @@ impl TuiApp {
             },
             _ => {}
         }
+        Ok(())
     }
 }
 
@@ -1709,10 +1813,330 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     Ok(terminal)
 }
 
-/// Restore terminal to normal mode
-fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
+/// Restores the terminal on every return path, including I/O errors.
+type PanicHook = std::sync::Arc<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync>;
+
+struct TerminalGuard {
+    original_hook: PanicHook,
+}
+
+impl TerminalGuard {
+    fn new() -> Self {
+        let original_hook: PanicHook = std::panic::take_hook().into();
+        let hook = original_hook.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            restore_terminal();
+            hook(info);
+        }));
+        Self { original_hook }
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+        if !std::thread::panicking() {
+            let hook = self.original_hook.clone();
+            std::panic::set_hook(Box::new(move |info| hook(info)));
+        }
+    }
+}
+
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, crossterm::cursor::Show);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::backend::TestBackend;
+    use tempfile::TempDir;
+
+    async fn app() -> (TuiApp, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let mut config = CliConfig::default();
+        config.general.storage_backend = crate::config::StorageBackend::None;
+        config.general.download_dir = dir.path().join("downloads");
+        config.engine.enable_dht = false;
+        config.engine.enable_lpd = false;
+        config.engine.max_retries = 1;
+        let app = TuiApp::new(config, Some(dir.path().join("custom.toml")))
+            .await
+            .unwrap();
+        (app, dir)
+    }
+
+    async fn key(app: &mut TuiApp, code: KeyCode) -> bool {
+        app.handle_terminal_event(&Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+            .await
+            .unwrap()
+    }
+
+    fn render(app: &mut TuiApp, width: u16, height: u16) -> String {
+        app.terminal_width = width;
+        app.terminal_height = height;
+        app.detect_layout_mode();
+        app.startup_effects_added = true;
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| ui::render(f, app)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn invalid_add_input_stays_in_tui_and_ctrl_c_always_quits() {
+        let (mut app, _dir) = app().await;
+        key(&mut app, KeyCode::Char('a')).await;
+        for c in "this is not a URL".chars() {
+            key(&mut app, KeyCode::Char(c)).await;
+        }
+        assert!(!key(&mut app, KeyCode::Enter).await);
+        assert!(matches!(app.dialog, Some(DialogState::Error { .. })));
+        assert!(app
+            .handle_terminal_event(&Event::Key(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL
+            )))
+            .await
+            .unwrap());
+        app.engine.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unicode_add_editing_and_dialog_at_80x24() {
+        let (mut app, _dir) = app().await;
+        key(&mut app, KeyCode::Char('a')).await;
+        for c in "雪éx".chars() {
+            key(&mut app, KeyCode::Char(c)).await;
+        }
+        key(&mut app, KeyCode::Left).await;
+        key(&mut app, KeyCode::Backspace).await;
+        assert!(
+            matches!(&app.dialog, Some(DialogState::AddUrl { input, cursor }) if input == "雪x" && *cursor == 1)
+        );
+        let screen = render(&mut app, 80, 24);
+        assert!(screen.contains("Enter URL"));
+        assert!(screen.contains("Cancel"));
+        key(&mut app, KeyCode::Esc).await;
+        key(&mut app, KeyCode::Char('?')).await;
+        let help = render(&mut app, 80, 24);
+        assert!(help.contains("verify and repair"));
+        assert!(help.contains("Press any key to close"));
+        app.engine.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn settings_save_custom_path_and_keep_draft_on_failure() {
+        let (mut app, dir) = app().await;
+        key(&mut app, KeyCode::Char('S')).await;
+        if let Some(DialogState::Settings { draft, dirty, .. }) = &mut app.dialog {
+            draft.tui.theme = "light".into();
+            *dirty = true;
+        } else {
+            panic!("uppercase shortcut did not open settings");
+        }
+        key(&mut app, KeyCode::Esc).await;
+        assert!(dir.path().join("custom.toml").exists());
+        assert_eq!(
+            CliConfig::load(app.config_path.as_deref())
+                .unwrap()
+                .tui
+                .theme,
+            "light"
+        );
+        app.config_path = Some(dir.path().to_path_buf()); // writing a directory must fail
+        key(&mut app, KeyCode::Char('S')).await;
+        if let Some(DialogState::Settings { draft, dirty, .. }) = &mut app.dialog {
+            draft.tui.theme = "dark".into();
+            *dirty = true;
+        }
+        key(&mut app, KeyCode::Esc).await;
+        assert!(matches!(
+            app.dialog,
+            Some(DialogState::Settings { dirty: true, .. })
+        ));
+        assert_eq!(app.config.tui.theme, "light");
+        assert!(app.toasts.last().unwrap().message.contains("not saved"));
+        app.engine.shutdown().await.unwrap();
+    }
+
+    #[test]
+    fn invalid_settings_edits_do_not_disable_limits() {
+        let mut draft = CliConfig::default();
+        draft.engine.global_download_limit = Some(1024);
+        assert!(TuiApp::apply_settings_edit(&mut draft, 1, 3, "typo").is_err());
+        assert_eq!(draft.engine.global_download_limit, Some(1024));
+        assert!(TuiApp::apply_settings_edit(&mut draft, 1, 0, "typo").is_err());
+    }
+
+    #[tokio::test]
+    async fn dialogs_render_at_small_and_normal_sizes_and_settings_scroll() {
+        let (mut app, _dir) = app().await;
+        for (width, height) in [(1, 1), (20, 6), (79, 19), (80, 24), (120, 40)] {
+            for c in ['a', 'S', 'A', '?'] {
+                app.dialog = None;
+                app.show_help = false;
+                key(&mut app, KeyCode::Char(c)).await;
+                render(&mut app, width, height);
+            }
+        }
+        app.show_help = false;
+        app.dialog = Some(DialogState::Settings {
+            active_tab: 1,
+            selected_row: 10,
+            editing: None,
+            draft: Box::new(app.config.clone()),
+            dirty: false,
+        });
+        assert!(render(&mut app, 80, 24).contains("Accept Invalid Certs"));
+        app.engine.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn batch_review_is_portable_and_does_not_report_failed_imports_as_success() {
+        let (mut app, dir) = app().await;
+        let torrent = dir.path().join("broken.torrent");
+        std::fs::write(&torrent, "not valid torrent metadata").unwrap();
+        key(&mut app, KeyCode::Char('A')).await;
+        if let Some(DialogState::BatchImport {
+            phase: BatchPhase::Input { text, .. },
+        }) = &mut app.dialog
+        {
+            *text = torrent.display().to_string();
+        }
+        key(&mut app, KeyCode::F(2)).await;
+        assert!(
+            matches!(&app.dialog, Some(DialogState::BatchImport { phase: BatchPhase::Review { entries, .. } }) if entries.len() == 1)
+        );
+        key(&mut app, KeyCode::Enter).await;
+        assert_eq!(app.toasts.last().unwrap().message, "Added 0/1 downloads");
+        assert!(app.engine.list().is_empty());
+        assert!(matches!(app.dialog, Some(DialogState::Error { .. })));
+        app.engine.shutdown().await.unwrap();
+    }
+
+    async fn completed_http(
+        app: &mut TuiApp,
+    ) -> (gosh_dl::DownloadId, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/test.bin", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buf = [0; 4096];
+                    let n = stream.read(&mut buf).await.unwrap();
+                    let head = buf[..n].starts_with(b"HEAD ");
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n",
+                        )
+                        .await
+                        .unwrap();
+                    if !head {
+                        let _ = stream.write_all(b"test").await;
+                    }
+                });
+            }
+        });
+        app.add_download(&url).await.unwrap();
+        assert!(app.dialog.is_none());
+        let id = app.engine.list()[0].id;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !matches!(
+                app.engine.status(id).unwrap().state,
+                DownloadState::Completed
+            ) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        app.refresh_downloads();
+        (id, server)
+    }
+
+    async fn finish_check(app: &mut TuiApp) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !app.integrity_task.as_ref().unwrap().is_finished() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        app.finish_integrity().await;
+    }
+
+    #[tokio::test]
+    async fn verify_repair_real_file_and_search_actions() {
+        let (mut app, _dir) = app().await;
+        let (id, server) = completed_http(&mut app).await;
+        key(&mut app, KeyCode::Char('v')).await;
+        finish_check(&mut app).await;
+        assert!(app
+            .activity_log
+            .back()
+            .unwrap()
+            .message
+            .contains("Verification passed"));
+        let path = app.config.general.download_dir.join("test.bin");
+        tokio::fs::write(&path, b"bad").await.unwrap();
+        key(&mut app, KeyCode::Char('v')).await;
+        finish_check(&mut app).await;
+        assert!(app
+            .activity_log
+            .back()
+            .unwrap()
+            .message
+            .contains("Verification failed"));
+        key(&mut app, KeyCode::Char('V')).await;
+        assert!(matches!(
+            app.dialog,
+            Some(DialogState::ConfirmRepair { .. })
+        ));
+        key(&mut app, KeyCode::Char('y')).await;
+        finish_check(&mut app).await;
+        assert!(app
+            .activity_log
+            .back()
+            .unwrap()
+            .message
+            .contains("Repair queued"));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !matches!(
+                app.engine.status(id).unwrap().state,
+                DownloadState::Completed
+            ) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(tokio::fs::read(path).await.unwrap(), b"test");
+        key(&mut app, KeyCode::Char('/')).await;
+        for c in "test".chars() {
+            key(&mut app, KeyCode::Char(c)).await;
+        }
+        key(&mut app, KeyCode::Enter).await;
+        assert_eq!(app.selected_download().unwrap().id, id);
+        key(&mut app, KeyCode::Char('d')).await;
+        key(&mut app, KeyCode::Char('n')).await;
+        assert!(app.engine.status(id).is_some());
+        app.config.tui.show_speed_graph = false;
+        app.config.tui.show_peers = false;
+        app.toasts.clear();
+        let screen = render(&mut app, 120, 40);
+        assert!(!screen.contains("Peers:"));
+        assert!(screen.contains("Priority:"));
+        app.engine.shutdown().await.unwrap();
+        server.abort();
+    }
 }

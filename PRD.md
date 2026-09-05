@@ -1,5 +1,7 @@
 # Product Requirements Document: gosh
 
+> **Current release:** CLI 0.6.2 uses gosh-dl 0.6.2. Resume commands run in the foreground; enqueue operations persist paused work. See [ROLLOUT.md](ROLLOUT.md) for current validation.
+
 > **Note**: This is an internal planning document from the initial design phase. Some details (MSRV, feature status) may not reflect the current state of the code. For current usage docs, see [README.md](README.md).
 
 ## Product Overview
@@ -162,7 +164,7 @@ gosh resume <download-id>
 - Exit codes suitable for scripting
 
 ### NFR5: Maintainability
-- Rust 1.85+
+- Rust 1.88+
 - Modular architecture separating engine from UI
 - Comprehensive type safety
 

@@ -1,6 +1,6 @@
 //! Batch operations: pause-all, resume-all, cancel-all
 //!
-//! Thin wrappers over the gosh-dl 0.5.0 batch engine APIs, reporting
+//! Thin wrappers over the gosh-dl 0.6.2 batch engine APIs, reporting
 //! per-download outcomes from `BatchResult`.
 
 use anyhow::Result;
@@ -50,15 +50,17 @@ pub async fn pause_all(app: &App, output: OutputFormat) -> Result<i32> {
 }
 
 pub async fn resume_all(app: &App, output: OutputFormat) -> Result<i32> {
+    let events = app.subscribe();
     let result = app.engine().resume_all().await;
-    report(&result, &RESUME, output)
+    let start_code = report(&result, &RESUME, output)?;
+    let code = super::add::wait_for_completion(app, &result.succeeded, events).await?;
+    Ok(if code == 0 { start_code } else { code })
 }
 
 pub async fn cancel_all(args: CancelAllArgs, app: &App, output: OutputFormat) -> Result<i32> {
     let total = app.engine().list().len();
     if total == 0 {
-        println!("No downloads to cancel");
-        return Ok(exit_codes::SUCCESS);
+        return report(&BatchResult::default(), &CANCEL, output);
     }
 
     // Confirm unless --yes is specified

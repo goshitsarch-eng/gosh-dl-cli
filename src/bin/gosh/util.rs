@@ -152,15 +152,19 @@ pub fn parse_checksum(s: &str) -> Result<gosh_dl::http::ExpectedChecksum> {
 pub fn parse_speed(s: &str) -> Result<u64> {
     let s = s.trim().to_uppercase();
 
-    if let Some(num) = s.strip_suffix('K') {
-        Ok(num.parse::<u64>()? * 1024)
+    let (number, multiplier) = if let Some(num) = s.strip_suffix('K') {
+        (num, 1024)
     } else if let Some(num) = s.strip_suffix('M') {
-        Ok(num.parse::<u64>()? * 1024 * 1024)
+        (num, 1024 * 1024)
     } else if let Some(num) = s.strip_suffix('G') {
-        Ok(num.parse::<u64>()? * 1024 * 1024 * 1024)
+        (num, 1024 * 1024 * 1024)
     } else {
-        Ok(s.parse()?)
-    }
+        (s.as_str(), 1)
+    };
+    number
+        .parse::<u64>()?
+        .checked_mul(multiplier)
+        .ok_or_else(|| anyhow::anyhow!("Speed value is too large"))
 }
 
 /// Parse a comma-separated file index list into a non-empty vector.

@@ -136,6 +136,9 @@ fn final_exit_code(status: &RecursiveJobStatus) -> i32 {
 }
 
 async fn run_mirror(app: &App, url: &str, args: &MirrorArgs, output: OutputFormat) -> Result<i32> {
+    if args.detach && app.config.general.storage_backend == crate::config::StorageBackend::None {
+        bail!("Enqueueing a mirror requires persistent storage; omit --enqueue/--detach to run in the foreground");
+    }
     let options = build_download_options(args)?;
     let recursive = build_recursive_options(args);
 
@@ -172,25 +175,44 @@ async fn run_mirror(app: &App, url: &str, args: &MirrorArgs, output: OutputForma
         .map(|j| j.id);
 
     if args.detach {
-        match tracked_id {
-            Some(id) => println!(
-                "Mirror job {} added: {} file(s) from {}",
-                &id.simple().to_string()[..8],
-                job.child_ids.len(),
-                job.root_url
-            ),
-            None => println!(
-                "Mirror job added: {} file(s) from {}",
-                job.child_ids.len(),
-                job.root_url
-            ),
-        }
-        println!("Track it with: gosh mirror list");
+        super::add::pause_downloads(app, &job.child_ids).await?;
+        eprintln!("Saved mirror paused; no background process is running. Resume in the TUI or run: gosh resume {}",
+            job.child_ids.iter().map(|id| id.to_gid()).collect::<Vec<_>>().join(" "));
+        print_job_result(app, &job, tracked_id, output)?;
         return Ok(exit_codes::SUCCESS);
     }
 
-    println!("Mirroring {} file(s)", job.child_ids.len());
-    run_mirror_foreground(app, &job, tracked_id, &mut job_events, &mut dl_events).await
+    if output == OutputFormat::Table {
+        println!("Mirroring {} file(s)", job.child_ids.len());
+    }
+    let code =
+        run_mirror_foreground(app, &job, tracked_id, &mut job_events, &mut dl_events).await?;
+    print_job_result(app, &job, tracked_id, output)?;
+    Ok(code)
+}
+
+fn print_job_result(
+    app: &App,
+    job: &RecursiveJob,
+    id: Option<uuid::Uuid>,
+    output: OutputFormat,
+) -> Result<()> {
+    let status = app.engine().recursive_job_status(job);
+    let result = serde_json::json!({"id": id, "root_url": job.root_url, "child_ids": job.child_ids, "status": status});
+    match output {
+        OutputFormat::Json => println!("{}", serde_json::to_string(&result)?),
+        OutputFormat::JsonPretty => println!("{}", serde_json::to_string_pretty(&result)?),
+        OutputFormat::Table => {
+            if let Some(id) = id {
+                println!(
+                    "Mirror job {}: {}",
+                    &id.simple().to_string()[..8],
+                    format_job_state(status.state)
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn print_manifest(manifest: &gosh_dl::RecursiveManifest, output: OutputFormat) -> Result<i32> {
@@ -280,15 +302,7 @@ async fn run_mirror_foreground(
                 for pb in file_bars.values() {
                     pb.abandon();
                 }
-                // Cancel via the tracked job when known (also cleans up the
-                // record's children atomically), else child by child
-                if let Some(id) = tracked_id {
-                    let _ = app.engine().cancel_recursive_job(id, false).await;
-                } else {
-                    for id in &child_ids {
-                        let _ = app.engine().cancel(*id, false).await;
-                    }
-                }
+                super::add::pause_downloads(app, &job.child_ids).await?;
                 return Ok(exit_codes::INTERRUPTED);
             }
             ev = job_events.recv() => match ev {
