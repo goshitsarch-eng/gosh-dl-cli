@@ -54,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Preserve visual list order across refreshes without claiming queue priority changes.
 
 ### Release engineering and documentation
+- Explicitly use blocking accepted sockets in the loopback HTTP test fixture,
+  preventing intermittent Windows mirror-test connection resets.
 - Add crates.io Trusted Publishing gated on tests, Rust compatibility, linting,
   source-package verification, and all six platform binary builds.
 - Test both default and TUI-free builds on Linux, macOS, and Windows with the

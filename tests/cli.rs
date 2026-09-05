@@ -250,6 +250,9 @@ impl HttpFixture {
                     }
                     Err(e) => panic!("fixture accept: {e}"),
                 };
+                // Windows accept inherits the listener's nonblocking mode.
+                // Read the complete request before replying or closing the socket.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                     .unwrap();
