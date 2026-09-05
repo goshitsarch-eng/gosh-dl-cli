@@ -224,6 +224,7 @@ struct HttpFixture {
     url: String,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     started: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    file_requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -237,6 +238,8 @@ impl HttpFixture {
         let done = stop.clone();
         let started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let request_started = started.clone();
+        let file_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed_files = file_requests.clone();
         let worker = std::thread::spawn(move || {
             while !done.load(std::sync::atomic::Ordering::Relaxed) {
                 let (mut stream, _) = match listener.accept() {
@@ -260,6 +263,9 @@ impl HttpFixture {
                 }
                 let request = String::from_utf8_lossy(&request);
                 let path = request.split_whitespace().nth(1).unwrap_or("");
+                if path != "/files/" {
+                    observed_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 if path == "/slow.bin" {
                     let _ = stream.write_all(
                         b"HTTP/1.1 200 OK\r\nContent-Length: 65536\r\nConnection: close\r\n\r\n",
@@ -298,6 +304,7 @@ impl HttpFixture {
             url,
             stop,
             started,
+            file_requests,
             worker: Some(worker),
         }
     }
@@ -519,6 +526,13 @@ fn regression_mirror_enqueue_saves_paused_children() {
         .clone();
     let result: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(result["status"]["progress"]["paused_children"], 1);
+    assert_eq!(
+        fixture
+            .file_requests
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "queued mirror must not probe or transfer child files"
+    );
     isolated_gosh(&config)
         .args(["resume-all"])
         .assert()
@@ -632,4 +646,87 @@ fn regression_direct_interrupt_preserves_resume_record() {
 #[cfg(unix)]
 fn regression_add_wait_interrupt_preserves_resume_record() {
     interrupt_preserves_download(&["add", "--wait"]);
+}
+
+#[test]
+fn regression_queue_add_does_not_start_any_fast_file() {
+    let fixture = HttpFixture::new();
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    let mut command = isolated_gosh(&config);
+    command.arg("add");
+    for i in 0..30 {
+        command.arg(format!("{}/file-{i}.bin", fixture.url));
+    }
+    command.assert().success();
+    assert_eq!(
+        fixture
+            .file_requests
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    let output = isolated_gosh(&config)
+        .args(["--output", "json", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let entries: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(entries.as_array().unwrap().len(), 30);
+    assert!(entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["state"]["state"] == "paused"));
+}
+
+#[cfg(unix)]
+#[test]
+fn regression_direct_torrent_waits_for_requested_seed_ratio() {
+    use std::process::{Command as ProcessCommand, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    std::fs::write(dir.path().join("seed.bin"), b"test").unwrap();
+    let mut torrent =
+        b"d4:infod6:lengthi4e4:name8:seed.bin12:piece lengthi16384e6:pieces20:".to_vec();
+    torrent.extend(hex::decode("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3").unwrap());
+    torrent.extend(b"ee");
+    let torrent_path = dir.path().join("seed.torrent");
+    std::fs::write(&torrent_path, torrent).unwrap();
+    let mut command = ProcessCommand::new(env!("CARGO_BIN_EXE_gosh"));
+    command
+        .arg("--config")
+        .arg(&config)
+        .args([
+            "--color",
+            "never",
+            "--no-dht",
+            "--no-pex",
+            "--no-lpd",
+            "--seed-ratio",
+            "1",
+        ])
+        .arg(&torrent_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "must keep seeding until ratio is reached"
+    );
+    assert!(ProcessCommand::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .stdout(Stdio::null())
+        .status()
+        .unwrap()
+        .success());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(130));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Verified 1 existing pieces"),
+        "fixture must have reached seeding: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

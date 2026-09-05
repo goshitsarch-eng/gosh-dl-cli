@@ -250,7 +250,7 @@ fn reconcile_downloads(app: &App, downloads: &mut HashMap<DownloadId, DownloadIn
         }
         match app.engine().status(*id) {
             Some(status) => match status.state {
-                DownloadState::Completed | DownloadState::Seeding => {
+                DownloadState::Completed => {
                     info.completed = true;
                     info.progress_bar
                         .finish_with_message(format!("{} - Done", truncate_str(&info.name, 33)));

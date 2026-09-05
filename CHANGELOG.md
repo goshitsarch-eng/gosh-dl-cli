@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.2] - 2026-09-05
+## [0.6.3] - 2026-09-05
 
 ### Added
-- TUI `v` verification and confirmed `V` repair through gosh-dl 0.6.2, running in
+- TUI `v` verification and confirmed `V` repair through gosh-dl 0.6.3, running in
   the background with results retained in the activity log.
 - Portable F2 batch-import review shortcut and accurate partial import reporting.
 
 ### Changed
-- Upgrade the gosh-dl engine from 0.5.0 to 0.6.2 and align the CLI version.
+- Upgrade the gosh-dl engine from 0.5.0 to 0.6.3 and align the CLI version.
 - Correct the minimum Rust version to 1.88, required by the existing TUI dependencies.
 - `resume` and `resume-all` now run in the foreground until downloads finish.
 - `add` without `--wait` saves downloads paused. Mirror `--enqueue` (with the
@@ -25,9 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   perform recursive discovery in the engine.
 
 ### Fixed
+- Queue-only add and mirror operations use the engine’s atomic paused creation
+  API, preventing fast downloads from starting or finishing before a later pause.
 - `add --wait` returns failed/partial exit codes instead of reporting success
   after failed downloads. Closed event streams and removed downloads cannot
-  silently count as success; reconciliation recognizes completed seeding data.
+  silently count as success. Foreground torrent downloads continue seeding
+  until the requested positive ratio is reached; zero means unlimited seeding.
 - Ctrl+C preserves paused resume records in direct downloads, `add --wait`,
   resumed downloads, and foreground mirrors instead of cancelling/removing them.
 - Foreground and enqueued mirrors return valid JSON when requested. Empty
@@ -302,8 +305,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.6.2...HEAD
-[0.6.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.5.0...v0.6.2
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.5.0...v0.6.3
 [0.5.0]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.2...v0.5.0
 [0.3.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.0...v0.3.1

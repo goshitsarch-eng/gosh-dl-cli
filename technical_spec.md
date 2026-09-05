@@ -1,6 +1,6 @@
 # gosh-dl-cli technical specification
 
-Current CLI: **0.6.2**, using the published **gosh-dl 0.6.2** engine and
+Current CLI: **0.6.3**, using the published **gosh-dl 0.6.3** engine and
 requiring **Rust 1.88+** for its TUI dependencies.
 
 The CLI owns an in-process engine (`src/bin/gosh/app.rs`). Configuration and
@@ -19,7 +19,7 @@ There is no daemon or communication between separate CLI processes.
 
 Use one process per storage location. The engine handles HTTP and torrent
 protocol details; its current specification is maintained in the
-[engine repository](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.2/technical_spec.md).
+[engine repository](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.3/technical_spec.md).
 See [README.md](README.md) for command/configuration details and
 [ROLLOUT.md](ROLLOUT.md) for validation and remaining limitations.
 

@@ -139,7 +139,8 @@ async fn run_mirror(app: &App, url: &str, args: &MirrorArgs, output: OutputForma
     if args.detach && app.config.general.storage_backend == crate::config::StorageBackend::None {
         bail!("Enqueueing a mirror requires persistent storage; omit --enqueue/--detach to run in the foreground");
     }
-    let options = build_download_options(args)?;
+    let mut options = build_download_options(args)?;
+    options.start_paused = args.detach;
     let recursive = build_recursive_options(args);
 
     // Dry run: discover and list, never download
@@ -175,7 +176,6 @@ async fn run_mirror(app: &App, url: &str, args: &MirrorArgs, output: OutputForma
         .map(|j| j.id);
 
     if args.detach {
-        super::add::pause_downloads(app, &job.child_ids).await?;
         eprintln!("Saved mirror paused; no background process is running. Resume in the TUI or run: gosh resume {}",
             job.child_ids.iter().map(|id| id.to_gid()).collect::<Vec<_>>().join(" "));
         print_job_result(app, &job, tracked_id, output)?;
@@ -302,8 +302,7 @@ async fn run_mirror_foreground(
                 for pb in file_bars.values() {
                     pb.abandon();
                 }
-                super::add::pause_downloads(app, &job.child_ids).await?;
-                return Ok(exit_codes::INTERRUPTED);
+                        return Ok(exit_codes::INTERRUPTED);
             }
             ev = job_events.recv() => match ev {
                 Ok(gosh_dl::RecursiveJobEvent::Updated { job: j, status })

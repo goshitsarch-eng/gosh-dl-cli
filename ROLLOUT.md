@@ -1,21 +1,22 @@
-# gosh-dl-cli 0.6.2 rollout audit
+# gosh-dl-cli 0.6.3 rollout audit
 
 Baseline: CLI 0.5.0 at `8f17ced`, using gosh-dl 0.5.0. This update uses the
-published gosh-dl 0.6.2 engine. The binary is still named `gosh`.
+published gosh-dl 0.6.3 engine. The binary is still named `gosh`.
 
 ## Defects addressed
 
 | Area | Observed failure | Resolution |
 | --- | --- | --- |
-| Engine dependency | CLI missed the 0.6.x HTTP, streaming, torrent lifecycle, and uTP fixes. | Upgrade the registry dependency and lockfile to 0.6.2. |
+| Engine dependency | CLI missed the 0.6.x HTTP, streaming, torrent lifecycle, and uTP fixes. | Upgrade the registry dependency and lockfile to 0.6.3. |
 | Waiting downloads | `add --wait` returned success after an HTTP 404. | Track failed outcomes and return 1/2 for partial/total failure. |
 | Resume | `resume` started workers and immediately shut them down. | Wait in the foreground, including `resume-all`. |
 | Interrupts | Direct downloads and mirrors cancelled records, losing normal resume access. `add --wait` had no graceful Ctrl+C branch. | Pause unfinished work, preserve state, and exit 130. |
-| Queue-only operations | Detached mirrors claimed background work even though the process exited; in-memory queue entries disappeared on exit. | Save explicitly paused work; prefer `--enqueue` and retain `--detach` as an alias. Reject queue-only operations without storage. |
+| Queue-only operations | Detached mirrors claimed background work even though the process exited; in-memory queue entries disappeared on exit. | Create paused records before any transfer starts; prefer `--enqueue` and retain `--detach` as an alias. Reject queue-only operations without storage. |
 | JSON output | Empty `cancel-all` and foreground mirrors printed plain text; log messages could reach stdout. | Serialize result objects and route logging to stderr. |
 | Local commands | Config and torrent-info commands opened the download database unnecessarily; `config path` ignored `--config`. | Route local commands before engine creation and honor the selected path. |
 | Validation | Speed multiplication overflowed; schedule typos could become unrestricted rules; zero HTTP attempts prevented discovery. | Checked arithmetic and explicit configuration validation. |
 | Rust support | Manifest claimed Rust 1.85 despite TUI dependencies requiring 1.88. | Set and test Rust 1.88; modernize existing Clippy match patterns. |
+| Torrent completion | Foreground polling could stop seeding before the configured ratio. | Wait for Completed; Seeding remains active (zero means unlimited seeding). |
 | TUI event loop | Progress floods reset ticks; errors could leave raw mode active. | Persistent ticker, coalesced rendering, guaranteed terminal cleanup. |
 | TUI controls | Uppercase shortcuts failed on some terminals; invalid add input exited; dialogs clipped at 80×24. | Portable key handling, contained errors, usable dialog sizes, scrollable settings/import review. |
 | TUI settings | Custom paths ignored; failed saves and invalid numeric edits appeared successful; UI toggles did nothing. | Validate edits, retain failed drafts, honor paths, apply UI settings and document restart requirements. |
@@ -55,7 +56,7 @@ fixtures run on loopback; they do not depend on external download servers.
   bandwidth settings apply immediately. Avoid overlapping processes.
 - Real-swarm interoperability and long-duration network testing still matter;
   engine limitations are documented in the
-  [gosh-dl rollout audit](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.2/ROLLOUT.md).
+  [gosh-dl rollout audit](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.3/ROLLOUT.md).
 - AUR packaging is updated separately from the crate and GitHub release.
 - The crate owner must configure Trusted Publishing for **gosh-dl-cli**
   before merging the release PR. The engine's publisher does not cover it.

@@ -1,7 +1,7 @@
 # gosh-dl-cli
 
 [![Crates.io](https://img.shields.io/crates/v/gosh-dl-cli)](https://crates.io/crates/gosh-dl-cli)
-[![Engine docs](https://img.shields.io/docsrs/gosh-dl)](https://docs.rs/gosh-dl/0.6.2/gosh_dl/)
+[![Engine docs](https://img.shields.io/docsrs/gosh-dl)](https://docs.rs/gosh-dl/0.6.3/gosh_dl/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A download manager for the terminal. HTTP/HTTPS with multi-connection acceleration, full BitTorrent support, and an optional TUI. Built on [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl).
@@ -18,9 +18,9 @@ A download manager for the terminal. HTTP/HTTPS with multi-connection accelerati
 - **Bandwidth scheduling** -- time-of-day and day-of-week speed limit rules
 - Cross-platform: Linux, macOS, and Windows
 
-### What's new in 0.6.2
+### What's new in 0.6.3
 
-Upgraded to gosh-dl 0.6.2, including authenticated HTTP probe fixes, safer
+Upgraded to gosh-dl 0.6.3, including authenticated HTTP probe fixes, safer
 nested paths, torrent pause/resume and repair fixes, and improved uTP recovery.
 CLI downloads now report failures correctly, `resume` stays in the foreground,
 and Ctrl+C preserves downloads for resume. Queued downloads and mirror jobs
@@ -46,7 +46,7 @@ cp target/release/gosh ~/.local/bin/   # or /usr/local/bin/
 From crates.io:
 
 ```bash
-cargo install gosh-dl-cli --version 0.6.2 --locked
+cargo install gosh-dl-cli --version 0.6.3 --locked
 ```
 
 Arch Linux (AUR):
@@ -58,7 +58,7 @@ yay -S gosh-dl-cli
 Without the TUI (smaller binary, fewer dependencies):
 
 ```bash
-cargo install gosh-dl-cli --version 0.6.2 --locked --no-default-features
+cargo install gosh-dl-cli --version 0.6.3 --locked --no-default-features
 ```
 
 Pre-built binaries are available on [GitHub Releases](https://github.com/goshitsarch-eng/gosh-dl-cli/releases). Linux builds are statically linked with musl.
@@ -291,6 +291,10 @@ The details panel shows the selected download's progress, error, path, connectio
 and priority. Speed charts show aggregate engine traffic. Active mirror jobs
 appear as a compact counter in the top bar. The progress map is estimated from
 completed bytes; it is not an actual segment/piece bitmap.
+
+Foreground torrent commands wait through seeding until the configured seed ratio
+is reached. The engine treats `--seed-ratio 0` as unlimited seeding; use Ctrl+C
+to pause and exit. The TUI continues running while torrents seed.
 
 Pause active downloads before using `v` or `V`. Verification runs in the background;
 results stay in the activity log (`L`). HTTP verification uses the stored checksum

@@ -55,7 +55,11 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<i
 
     let prepared: Vec<_> = inputs
         .iter()
-        .map(|input| build_options(&args, input))
+        .map(|input| {
+            let mut options = build_options(&args, input)?;
+            options.start_paused = !args.wait;
+            Ok(options)
+        })
         .collect::<Result<_>>()?;
 
     // Subscribe BEFORE adding so a fast download finishing immediately can't
@@ -91,7 +95,6 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<i
     let code = if let Some(events) = events {
         wait_for_completion(app, &added_ids, events).await?
     } else {
-        pause_downloads(app, &added_ids).await?;
         eprintln!("Saved downloads paused. Run 'gosh resume all' or resume them in the TUI; no background process is running.");
         crate::util::exit_codes::SUCCESS
     };
@@ -329,6 +332,7 @@ pub async fn pause_downloads(app: &App, ids: &[DownloadId]) -> Result<()> {
                 gosh_dl::DownloadState::Queued
                     | gosh_dl::DownloadState::Connecting
                     | gosh_dl::DownloadState::Downloading
+                    | gosh_dl::DownloadState::Seeding
             )
         }) {
             if let Err(error) = app.engine().pause(*id).await {
@@ -339,6 +343,7 @@ pub async fn pause_downloads(app: &App, ids: &[DownloadId]) -> Result<()> {
                         gosh_dl::DownloadState::Queued
                             | gosh_dl::DownloadState::Connecting
                             | gosh_dl::DownloadState::Downloading
+                            | gosh_dl::DownloadState::Seeding
                     )
                 }) {
                     return Err(error.into());
@@ -358,7 +363,7 @@ fn reconcile_remaining(
 ) {
     remaining.retain(|id| match app.engine().status(*id) {
         Some(status) => match status.state {
-            gosh_dl::DownloadState::Completed | gosh_dl::DownloadState::Seeding => {
+            gosh_dl::DownloadState::Completed => {
                 if let Some(pb) = bars.get(id) {
                     pb.finish_with_message("Done");
                 }
