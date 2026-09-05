@@ -12,7 +12,7 @@ pub async fn execute(
 ) -> Result<()> {
     match args.action {
         ConfigAction::Show => show_config(config),
-        ConfigAction::Path => show_path(),
+        ConfigAction::Path => show_path(config_path),
         ConfigAction::Get { key } => get_config_value(config, &key),
         ConfigAction::Set { key, value } => set_config_value(&key, &value, config_path),
     }
@@ -24,8 +24,10 @@ fn show_config(config: &CliConfig) -> Result<()> {
     Ok(())
 }
 
-fn show_path() -> Result<()> {
-    let path = CliConfig::default_path();
+fn show_path(config_path: Option<&Path>) -> Result<()> {
+    let path = config_path
+        .map(Path::to_path_buf)
+        .unwrap_or_else(CliConfig::default_path);
     println!("{}", path.display());
 
     if path.exists() {

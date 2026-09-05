@@ -1,8 +1,35 @@
-# gosh-dl Technical Specification
+# gosh-dl-cli technical specification
 
-A native Rust download engine supporting HTTP/HTTPS and BitTorrent protocols.
+Current CLI: **0.6.3**, using the published **gosh-dl 0.6.3** engine and
+requiring **Rust 1.88+** for its TUI dependencies.
 
-> **Note**: This is a design-phase specification for the [gosh-dl](https://github.com/goshitsarch-eng/gosh-dl) engine library. Some structural details (e.g., module layout) may have changed since initial implementation. For CLI usage, see [README.md](README.md).
+The CLI owns an in-process engine (`src/bin/gosh/app.rs`). Configuration and
+`.torrent` metadata inspection run without opening the engine or its database.
+The TUI and foreground commands own their workers until completion or shutdown.
+There is no daemon or communication between separate CLI processes.
+
+| Operation | Current lifecycle |
+| --- | --- |
+| Direct URL / `add --wait` | Wait for completion; propagate failures; Ctrl+C pauses for resume. |
+| `add` without `--wait` | Persist paused downloads for a later invocation. |
+| `resume` / `resume-all` | Recreate workers from persisted state and wait in the foreground. |
+| `mirror` | Discover, download, and monitor the recursive job. |
+| `mirror --enqueue` / `--detach` | Save paused children and job metadata; no background worker. |
+| JSON output | Mirror results and batch outcomes are structured; diagnostics use stderr. |
+
+Use one process per storage location. The engine handles HTTP and torrent
+protocol details; its current specification is maintained in the
+[engine repository](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.3/technical_spec.md).
+See [README.md](README.md) for command/configuration details and
+[ROLLOUT.md](ROLLOUT.md) for validation and remaining limitations.
+
+The TUI uses a persistent refresh interval, coalesces progress redraws, restores
+terminal state on every exit path, and performs verification/repair in background
+tasks. Settings save to the requested config path. See the README for controls,
+live settings, and integrity-check limitations.
+
+The remainder is an **archived engine design**, retained for historical
+context. Its API sketches and module layout are not the current CLI contract.
 
 ---
 

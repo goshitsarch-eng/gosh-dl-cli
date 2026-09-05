@@ -40,6 +40,7 @@ pub struct EventHandler {
     engine_events: broadcast::Receiver<DownloadEvent>,
     recursive_events: broadcast::Receiver<RecursiveJobEvent>,
     tick_rate: Duration,
+    ticker: tokio::time::Interval,
     terminal_reader: crossterm::event::EventStream,
     /// Set when the corresponding stream has closed, so its select branch is
     /// disabled instead of busy-spinning on an immediately-ready error.
@@ -58,6 +59,7 @@ impl EventHandler {
             engine_events,
             recursive_events,
             tick_rate,
+            ticker: Self::ticker(tick_rate),
             terminal_reader: crossterm::event::EventStream::new(),
             engine_closed: false,
             recursive_closed: false,
@@ -65,11 +67,22 @@ impl EventHandler {
         }
     }
 
+    fn ticker(period: Duration) -> tokio::time::Interval {
+        let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker
+    }
+
+    pub fn set_tick_rate(&mut self, period: Duration) {
+        if period != self.tick_rate {
+            self.tick_rate = period;
+            self.ticker = Self::ticker(period);
+        }
+    }
+
     /// Get the next event
     pub async fn next(&mut self) -> Result<AppEvent> {
         loop {
-            let tick = tokio::time::sleep(self.tick_rate);
-
             tokio::select! {
                 // Check for terminal events
                 result = self.terminal_reader.next(), if !self.terminal_closed => {
@@ -86,9 +99,7 @@ impl EventHandler {
                         }
                         Some(Err(e)) => return Err(e.into()),
                         None => {
-                            // Input stream ended; rely on ticks from now on
-                            self.terminal_closed = true;
-                            continue;
+                            anyhow::bail!("Terminal input closed");
                         }
                     }
                 }
@@ -121,7 +132,7 @@ impl EventHandler {
                     }
                 }
                 // Tick for periodic refresh
-                _ = tick => {
+                _ = self.ticker.tick() => {
                     return Ok(AppEvent::Tick);
                 }
             }
@@ -219,7 +230,7 @@ pub fn is_shift_key(event: &CrosstermEvent, key: char) -> bool {
 
 /// Alias for is_shift_key (uppercase letter check)
 pub fn is_upper_key(event: &CrosstermEvent, key: char) -> bool {
-    is_shift_key(event, key)
+    is_shift_key(event, key) || is_key(event, key)
 }
 
 /// Helper to check for Tab key
@@ -317,5 +328,39 @@ mod tests {
         let p = key_event(KeyCode::Char('p'), KeyModifiers::NONE, KeyEventKind::Press);
         assert!(is_key(&p, 'p'));
         assert!(!is_key(&p, 'q'));
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[test]
+    fn uppercase_shortcuts_work_on_unix_and_windows() {
+        for letter in ['A', 'P', 'R', 'C', 'S', 'L', 'J', 'K', 'V'] {
+            for modifier in [event::KeyModifiers::NONE, event::KeyModifiers::SHIFT] {
+                let key =
+                    CrosstermEvent::Key(KeyEvent::new(event::KeyCode::Char(letter), modifier));
+                assert!(is_upper_key(&key, letter));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn tick_deadline_survives_cancelled_selects() {
+        let mut ticker = EventHandler::ticker(Duration::from_millis(20));
+        let mut ticks = 0;
+        let work = async {
+            for _ in 0..100 {
+                tokio::select! {
+                    _ = ticker.tick() => ticks += 1,
+                    _ = tokio::time::sleep(Duration::from_millis(1)) => {},
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(3), work)
+            .await
+            .unwrap();
+        assert!(ticks > 0, "progress events must not starve UI ticks");
     }
 }

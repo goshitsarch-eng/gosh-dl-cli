@@ -17,9 +17,17 @@ pub struct App {
 
 /// Build the download engine honoring the configured storage backend
 pub async fn create_engine(config: &CliConfig) -> Result<Arc<DownloadEngine>> {
-    // Ensure database directory exists
-    if let Some(parent) = config.general.database_path.parent() {
-        std::fs::create_dir_all(parent)?;
+    config.validate()?;
+    tokio::fs::create_dir_all(&config.general.download_dir).await?;
+    if config.general.storage_backend != StorageBackend::None {
+        if let Some(parent) = config
+            .general
+            .database_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent)?;
+        }
     }
 
     let engine_config = config.to_engine_config();

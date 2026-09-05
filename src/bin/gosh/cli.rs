@@ -98,7 +98,7 @@ pub struct Cli {
     #[arg(short = 'k', long, hide = true)]
     pub insecure: bool,
 
-    /// Maximum retries for failed downloads
+    /// Maximum HTTP attempts including the first (at least 1)
     #[arg(long, global = true)]
     pub max_retries: Option<usize>,
 
@@ -120,7 +120,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Add a new download (HTTP URL, magnet link, or torrent file)
+    /// Save a download paused, or download now with --wait
     Add(Box<AddArgs>),
 
     /// List all downloads
@@ -132,7 +132,7 @@ pub enum Commands {
     /// Pause one or more downloads
     Pause(PauseArgs),
 
-    /// Resume one or more paused downloads
+    /// Resume downloads in the foreground until completion
     Resume(ResumeArgs),
 
     /// Cancel and optionally delete one or more downloads
@@ -141,7 +141,7 @@ pub enum Commands {
     /// Pause all active and queued downloads
     PauseAll,
 
-    /// Resume all paused downloads
+    /// Resume all paused downloads in the foreground
     ResumeAll,
 
     /// Cancel all downloads
@@ -352,8 +352,8 @@ pub struct MirrorArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Add the mirror job and exit without waiting for completion
-    #[arg(long)]
+    /// Save the mirror paused for later resume (does not start a background process)
+    #[arg(long = "enqueue", visible_alias = "detach", conflicts_with = "dry_run")]
     pub detach: bool,
 
     /// Custom headers (format: "Name: Value")

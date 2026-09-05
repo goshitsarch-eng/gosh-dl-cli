@@ -38,7 +38,7 @@ pub fn render_batch_import(frame: &mut Frame, dialog: &DialogState, app: &TuiApp
                     Style::default().fg(theme.subtext0),
                 ),
                 Span::styled(
-                    "Ctrl+Enter",
+                    "F2 / Ctrl+Enter",
                     Style::default()
                         .fg(theme.accent)
                         .add_modifier(Modifier::BOLD),
@@ -160,11 +160,14 @@ pub fn render_batch_import(frame: &mut Frame, dialog: &DialogState, app: &TuiApp
             let list_y = inner.y + 2;
             let list_height = inner.height.saturating_sub(4);
 
-            for (i, entry) in entries.iter().enumerate() {
-                if i as u16 >= list_height {
-                    break;
-                }
-                let y = list_y + i as u16;
+            let offset = selected.saturating_sub(usize::from(list_height).saturating_sub(1));
+            for (i, entry) in entries
+                .iter()
+                .enumerate()
+                .skip(offset)
+                .take(list_height as usize)
+            {
+                let y = list_y + (i - offset) as u16;
                 let is_sel = i == *selected;
 
                 let checkbox = if entry.selected { "[x]" } else { "[ ]" };

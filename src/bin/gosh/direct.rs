@@ -62,7 +62,11 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
         .map(|u| parse_input(u))
         .collect::<Result<_>>()?;
 
-    // Initialize the download engine
+    // Validate every option before creating workers or mutating persisted state.
+    let prepared: Vec<_> = inputs
+        .iter()
+        .map(|input| build_options(&opts, input))
+        .collect::<Result<_>>()?;
     let app = App::new(config).await?;
 
     // Setup multi-progress bar
@@ -84,13 +88,11 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
     let mut downloads: HashMap<DownloadId, DownloadInfo> = HashMap::new();
     let mut failed_to_add = 0;
 
-    for input in &inputs {
+    for (input, options) in inputs.iter().zip(prepared) {
         let pb = multi.add(ProgressBar::new(0));
         pb.set_style(spinner_style.clone());
         pb.set_message(truncate_str(&input.display(), 40));
         pb.enable_steady_tick(Duration::from_millis(100));
-
-        let options = build_options(&opts, input)?;
 
         let result = match input {
             ParsedInput::Http(url) => app.engine().add_http(url, options).await,
@@ -142,12 +144,8 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
         // Process events with timeout
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                // Cancel downloads that are still in flight
-                for (id, info) in &downloads {
-                    if !info.completed && !info.failed {
-                        let _ = app.engine().cancel(*id, false).await;
-                    }
-                }
+                let active: Vec<_> = downloads.iter().filter(|(_, info)| !info.completed && !info.failed).map(|(id, _)| *id).collect();
+                crate::commands::add::pause_downloads(&app, &active).await?;
                 for info in downloads.values() {
                     if !info.completed && !info.failed {
                         info.progress_bar.abandon_with_message("Interrupted");
@@ -211,7 +209,11 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
                         reconcile_downloads(&app, &mut downloads);
                         continue;
                     }
-                    Err(_) => break, // Channel closed
+                    Err(_) => {
+                        reconcile_downloads(&app, &mut downloads);
+                        for info in downloads.values_mut().filter(|info| !info.completed) { info.failed = true; }
+                        break;
+                    },
                     _ => continue,
                 }
             }

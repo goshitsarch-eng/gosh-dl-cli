@@ -64,11 +64,9 @@ pub fn render_settings(frame: &mut Frame, dialog: &DialogState, app: &TuiApp) {
     let content_y = sep_y + 1;
     let content_height = (inner.height as usize).saturating_sub(3);
 
-    for row in 0..row_count {
-        if row >= content_height {
-            break;
-        }
-        let y = content_y + row as u16;
+    let offset = selected_row.saturating_sub(content_height.saturating_sub(1));
+    for row in offset..row_count.min(offset + content_height) {
+        let y = content_y + (row - offset) as u16;
         let label = TuiApp::get_settings_label(*active_tab, row);
         let value = TuiApp::get_settings_value(draft, *active_tab, row);
         let is_selected = row == *selected_row;

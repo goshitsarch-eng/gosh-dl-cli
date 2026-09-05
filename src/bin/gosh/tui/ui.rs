@@ -102,14 +102,16 @@ fn render_two_column(frame: &mut Frame, app: &mut TuiApp) {
     };
 
     let right = Layout::vertical([
-        Constraint::Length(12),
+        Constraint::Length(if app.show_speed_graph() { 12 } else { 0 }),
         Constraint::Fill(1),
         Constraint::Length(chunk_height),
     ])
     .split(main_cols[1]);
 
     // Net graph
-    net_graph::render_net_graph(frame, right[0], app);
+    if app.show_speed_graph() {
+        net_graph::render_net_graph(frame, right[0], app);
+    }
     // Details or Activity log
     if app.show_activity_log {
         activity_log::render_activity_log(frame, right[1], app);
@@ -136,14 +138,22 @@ fn render_single_column(frame: &mut Frame, app: &mut TuiApp) {
 
     header::render_header(frame, chunks[0], app);
     download_list::render_download_list(frame, chunks[1], app);
-    details_panel::render_details(frame, chunks[2], app);
+    if app.show_activity_log {
+        activity_log::render_activity_log(frame, chunks[2], app);
+    } else {
+        details_panel::render_details(frame, chunks[2], app);
+    }
     status_bar::render_status_bar(frame, chunks[3], app);
 }
 
 fn render_minimal(frame: &mut Frame, app: &mut TuiApp) {
     let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(frame.area());
 
-    download_list::render_download_list(frame, chunks[0], app);
+    if app.show_activity_log {
+        activity_log::render_activity_log(frame, chunks[0], app);
+    } else {
+        download_list::render_download_list(frame, chunks[0], app);
+    }
     status_bar::render_status_bar(frame, chunks[1], app);
 }
 

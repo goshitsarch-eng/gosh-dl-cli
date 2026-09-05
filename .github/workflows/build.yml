@@ -1,0 +1,88 @@
+name: Release binaries
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            name: linux-x86_64
+            artifact: gosh
+            cross: true
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-musl
+            name: linux-arm64
+            artifact: gosh
+            cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-x86_64
+            artifact: gosh
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-arm64
+            artifact: gosh
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x86_64
+            artifact: gosh.exe
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            name: windows-arm64
+            artifact: gosh.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27
+
+      - name: Build with cross
+        if: matrix.cross
+        run: cross build --locked --release --target ${{ matrix.target }}
+
+      - name: Build
+        if: ${{ !matrix.cross }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf ../../../gosh-${{ matrix.name }}.tar.gz ${{ matrix.artifact }}
+          cd ../../..
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../gosh-${{ matrix.name }}.zip ${{ matrix.artifact }}
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosh-${{ matrix.name }}
+          path: gosh-${{ matrix.name }}.*
+          if-no-files-found: error
+

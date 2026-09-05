@@ -23,7 +23,10 @@ pub struct AddResult {
     pub kind: String,
 }
 
-pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<()> {
+pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<i32> {
+    if !args.wait && app.config.general.storage_backend == crate::config::StorageBackend::None {
+        bail!("Adding without --wait requires persistent storage; use --wait to download now");
+    }
     // Collect all URLs from various sources
     let mut urls = args.urls.clone();
 
@@ -50,6 +53,15 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
     // Parse and categorize inputs
     let inputs: Vec<ParsedInput> = urls.iter().map(|u| parse_input(u)).collect::<Result<_>>()?;
 
+    let prepared: Vec<_> = inputs
+        .iter()
+        .map(|input| {
+            let mut options = build_options(&args, input)?;
+            options.start_paused = !args.wait;
+            Ok(options)
+        })
+        .collect::<Result<_>>()?;
+
     // Subscribe BEFORE adding so a fast download finishing immediately can't
     // complete before we start listening (missed-event hang)
     let events = args.wait.then(|| app.subscribe());
@@ -59,9 +71,7 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
     // matching by round-tripped IDs would never fire.
     let mut results = Vec::new();
     let mut added_ids = Vec::new();
-    for input in inputs {
-        let options = build_options(&args, &input)?;
-
+    for (input, options) in inputs.into_iter().zip(prepared) {
         let id = match &input {
             ParsedInput::Http(url) => app.engine().add_http(url, options).await?,
             ParsedInput::Magnet(uri) => app.engine().add_magnet(uri, options).await?,
@@ -82,9 +92,12 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
     }
 
     // If --wait, monitor until completion
-    if let Some(events) = events {
-        wait_for_completion(app, &added_ids, &results, events).await?;
-    }
+    let code = if let Some(events) = events {
+        wait_for_completion(app, &added_ids, events).await?
+    } else {
+        eprintln!("Saved downloads paused. Run 'gosh resume all' or resume them in the TUI; no background process is running.");
+        crate::util::exit_codes::SUCCESS
+    };
 
     // Output results
     match output {
@@ -99,7 +112,7 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<(
         }
     }
 
-    Ok(())
+    Ok(code)
 }
 
 fn read_urls_from_stdin() -> Result<Vec<String>> {
@@ -209,19 +222,19 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
     Ok(options)
 }
 
-async fn wait_for_completion(
+pub async fn wait_for_completion(
     app: &App,
     added_ids: &[DownloadId],
-    results: &[AddResult],
     mut events: tokio::sync::broadcast::Receiver<DownloadEvent>,
-) -> Result<()> {
+) -> Result<i32> {
     let ids: HashSet<DownloadId> = added_ids.iter().copied().collect();
 
     if ids.is_empty() {
-        return Ok(());
+        return Ok(crate::util::exit_codes::SUCCESS);
     }
 
     let mut remaining = ids.clone();
+    let mut failed = HashSet::new();
 
     // Setup progress bars
     let multi = MultiProgress::new();
@@ -232,12 +245,16 @@ async fn wait_for_completion(
 
     let bars: HashMap<DownloadId, ProgressBar> = added_ids
         .iter()
-        .zip(results)
-        .map(|(id, result)| {
+        .map(|id| {
             let pb = multi.add(ProgressBar::new(0));
             pb.set_style(style.clone());
             pb.enable_steady_tick(Duration::from_millis(100));
-            pb.set_message(truncate_str(&result.input, 30));
+            let name = app
+                .engine()
+                .status(*id)
+                .map(|s| s.metadata.name)
+                .unwrap_or_else(|| id.to_gid());
+            pb.set_message(truncate_str(&name, 30));
             (*id, pb)
         })
         .collect();
@@ -249,6 +266,11 @@ async fn wait_for_completion(
 
     while !remaining.is_empty() {
         tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                pause_downloads(app, &remaining.iter().copied().collect::<Vec<_>>()).await?;
+                for pb in bars.values() { pb.abandon_with_message("Interrupted; saved for resume"); }
+                return Ok(crate::util::exit_codes::INTERRUPTED);
+            }
             event = events.recv() => match event {
                 Ok(DownloadEvent::Progress { id, progress }) if ids.contains(&id) => {
                     if let Some(pb) = bars.get(&id) {
@@ -269,24 +291,66 @@ async fn wait_for_completion(
                         pb.abandon_with_message(format!("Failed: {}", truncate_str(&error, 40)));
                     }
                     remaining.remove(&id);
+                    failed.insert(id);
                 }
                 Ok(DownloadEvent::Paused { id }) if ids.contains(&id) => {
                     if let Some(pb) = bars.get(&id) {
                         pb.set_message("Paused");
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    reconcile_remaining(app, &mut remaining, &bars, &mut failed);
+                    failed.extend(remaining.drain());
+                    break;
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    reconcile_remaining(app, &mut remaining, &bars);
+                    reconcile_remaining(app, &mut remaining, &bars, &mut failed);
                 }
                 _ => {}
             },
             _ = poll.tick() => {
-                reconcile_remaining(app, &mut remaining, &bars);
+                reconcile_remaining(app, &mut remaining, &bars, &mut failed);
             }
         }
     }
 
+    Ok(if failed.is_empty() {
+        crate::util::exit_codes::SUCCESS
+    } else if failed.len() == ids.len() {
+        crate::util::exit_codes::TOTAL_FAILURE
+    } else {
+        crate::util::exit_codes::PARTIAL_FAILURE
+    })
+}
+
+/// Pause in-flight work without deleting its persisted resume information.
+pub async fn pause_downloads(app: &App, ids: &[DownloadId]) -> Result<()> {
+    for id in ids {
+        if app.engine().status(*id).is_some_and(|s| {
+            matches!(
+                s.state,
+                gosh_dl::DownloadState::Queued
+                    | gosh_dl::DownloadState::Connecting
+                    | gosh_dl::DownloadState::Downloading
+                    | gosh_dl::DownloadState::Seeding
+            )
+        }) {
+            if let Err(error) = app.engine().pause(*id).await {
+                // Completion can race the pause request.
+                if app.engine().status(*id).is_some_and(|s| {
+                    matches!(
+                        s.state,
+                        gosh_dl::DownloadState::Queued
+                            | gosh_dl::DownloadState::Connecting
+                            | gosh_dl::DownloadState::Downloading
+                            | gosh_dl::DownloadState::Seeding
+                    )
+                }) {
+                    return Err(error.into());
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -295,6 +359,7 @@ fn reconcile_remaining(
     app: &App,
     remaining: &mut HashSet<DownloadId>,
     bars: &HashMap<DownloadId, ProgressBar>,
+    failed: &mut HashSet<DownloadId>,
 ) {
     remaining.retain(|id| match app.engine().status(*id) {
         Some(status) => match status.state {
@@ -305,6 +370,7 @@ fn reconcile_remaining(
                 false
             }
             gosh_dl::DownloadState::Error { ref message, .. } => {
+                failed.insert(*id);
                 if let Some(pb) = bars.get(id) {
                     pb.abandon_with_message(format!("Failed: {}", truncate_str(message, 40)));
                 }
@@ -314,6 +380,7 @@ fn reconcile_remaining(
         },
         // Download no longer tracked (cancelled/removed)
         None => {
+            failed.insert(*id);
             if let Some(pb) = bars.get(id) {
                 pb.abandon_with_message("Removed");
             }

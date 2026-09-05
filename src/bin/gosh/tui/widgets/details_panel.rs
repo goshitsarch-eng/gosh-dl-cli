@@ -22,7 +22,14 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
         // Split details: left metadata, right sparkline
         let detail_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Fill(1), Constraint::Length(34)])
+            .constraints([
+                Constraint::Fill(1),
+                Constraint::Length(if app.show_speed_graph() && inner.width >= 70 {
+                    34
+                } else {
+                    0
+                }),
+            ])
             .split(inner);
 
         // Left: metadata
@@ -38,7 +45,7 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
         // Connection quality indicator
         let quality = connection_quality(dl.progress.connections);
 
-        let meta_lines = vec![
+        let mut meta_lines = vec![
             Line::from(vec![
                 Span::styled("  Name: ", Style::default().fg(theme.overlay1)),
                 Span::styled(&dl.metadata.name, Style::default().fg(theme.text)),
@@ -97,6 +104,13 @@ pub fn render_details(frame: &mut Frame, area: Rect, app: &TuiApp) {
             ]),
         ];
 
+        if !app.show_peers() {
+            meta_lines[3] = Line::from(format!(" Path: {}", dl.metadata.save_dir.display()));
+        }
+        meta_lines.push(Line::from(format!(" Priority: {:?}", dl.priority)));
+        if let gosh_dl::DownloadState::Error { ref message, .. } = dl.state {
+            meta_lines.push(Line::from(format!(" Error: {message}")));
+        }
         frame.render_widget(Paragraph::new(meta_lines), detail_chunks[0]);
 
         // Right: sparkline graphs
