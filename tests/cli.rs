@@ -321,6 +321,10 @@ impl Drop for HttpFixture {
 }
 
 fn isolated_gosh(config: &std::path::Path) -> Command {
+    isolated_gosh_with_retries(config, "1")
+}
+
+fn isolated_gosh_with_retries(config: &std::path::Path, retries: &str) -> Command {
     let mut cmd = gosh();
     cmd.args([
         "-c",
@@ -328,7 +332,7 @@ fn isolated_gosh(config: &std::path::Path) -> Command {
         "--color",
         "never",
         "--max-retries",
-        "1",
+        retries,
     ])
     .timeout(std::time::Duration::from_secs(20));
     for key in [
@@ -561,14 +565,298 @@ fn regression_invalid_schedule_is_rejected() {
 }
 
 #[test]
-fn regression_zero_attempts_is_rejected() {
+fn zero_retries_is_valid_and_means_a_single_attempt() {
+    // `max_retries` counts retries *after* the first attempt, so 0 is a
+    // legitimate "try once" and must not be rejected as "zero attempts".
     let dir = tempfile::tempdir().unwrap();
     let config = temp_config(&dir);
     gosh()
         .args(["-c", config.to_str().unwrap(), "--max-retries", "0", "list"])
         .assert()
+        .success();
+    gosh()
+        .args([
+            "-c",
+            config.to_str().unwrap(),
+            "config",
+            "set",
+            "engine.max_retries",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    // With zero retries a download and a mirror crawl still get their one
+    // attempt (the old engine made no request at all).
+    let fixture = HttpFixture::new();
+    isolated_gosh_with_retries(&config, "0")
+        .args(["add", "--wait", &format!("{}/once.bin", fixture.url)])
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read(dir.path().join("once.bin")).unwrap(),
+        b"verified CLI download\n"
+    );
+    let mirrored = dir.path().join("mirrored");
+    isolated_gosh_with_retries(&config, "0")
+        .args(["mirror", "-d"])
+        .arg(&mirrored)
+        .arg(format!("{}/files/", fixture.url))
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read(mirrored.join("file.bin")).unwrap(),
+        b"verified CLI download\n"
+    );
+}
+
+#[test]
+fn on_conflict_policy_decides_what_happens_to_an_existing_file() {
+    let fixture = HttpFixture::new();
+    let url = format!("{}/report.bin", fixture.url);
+
+    // rename: the existing file is kept, the download gets a numbered name.
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    std::fs::write(dir.path().join("report.bin"), b"precious").unwrap();
+    isolated_gosh(&config)
+        .args(["--on-conflict", "rename", "add", "--wait", &url])
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read(dir.path().join("report.bin")).unwrap(),
+        b"precious"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("report (1).bin")).unwrap(),
+        b"verified CLI download\n"
+    );
+
+    // fail: the existing file is kept and the command reports the failure.
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    std::fs::write(dir.path().join("report.bin"), b"precious").unwrap();
+    isolated_gosh(&config)
+        .args(["--on-conflict", "fail", "add", "--wait", &url])
+        .assert()
+        .failure();
+    assert_eq!(
+        std::fs::read(dir.path().join("report.bin")).unwrap(),
+        b"precious"
+    );
+
+    // The same policy from the config file; overwrite stays the default.
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    std::fs::write(dir.path().join("report.bin"), b"precious").unwrap();
+    isolated_gosh(&config)
+        .args(["config", "set", "general.file_conflict", "rename"])
+        .assert()
+        .success();
+    isolated_gosh(&config)
+        .args(["add", "--wait", &url])
+        .assert()
+        .success();
+    assert!(dir.path().join("report (1).bin").exists());
+    isolated_gosh(&config)
+        .args(["--on-conflict", "overwrite", "add", "--wait", &url])
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read(dir.path().join("report.bin")).unwrap(),
+        b"verified CLI download\n",
+        "the flag overrides the config file"
+    );
+
+    isolated_gosh(&config)
+        .args(["--on-conflict", "sometimes", "list"])
+        .assert()
         .failure()
-        .stderr(predicate::str::contains("max_retries must be between 1"));
+        .stderr(predicate::str::contains("possible values"));
+}
+
+#[test]
+fn verify_and_repair_check_and_fix_a_finished_download() {
+    let fixture = HttpFixture::new();
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    let added = isolated_gosh(&config)
+        .args([
+            "--output",
+            "json",
+            "add",
+            "--wait",
+            &format!("{}/data.bin", fixture.url),
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let added: serde_json::Value = serde_json::from_slice(&added).unwrap();
+    let id = added[0]["id"]
+        .as_str()
+        .expect("add prints the id")
+        .to_string();
+
+    let report = isolated_gosh(&config)
+        .args(["--output", "json", "verify", &id])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: serde_json::Value = serde_json::from_slice(&report).unwrap();
+    assert_eq!(report["valid"], true, "{report}");
+
+    // Damage the file: verify notices and exits non-zero...
+    let path = dir.path().join("data.bin");
+    std::fs::write(&path, b"damaged").unwrap();
+    isolated_gosh(&config)
+        .args(["verify", &id])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("NOT valid"));
+
+    // ...and repair downloads it again before returning.
+    let report = isolated_gosh(&config)
+        .args(["--output", "json", "repair", &id])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let first_line = report.split(|b| *b == b'\n').next().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(first_line).unwrap();
+    assert_eq!(report["valid"], false, "{report}");
+    assert_eq!(report["repair_started"], true, "{report}");
+    assert_eq!(std::fs::read(&path).unwrap(), b"verified CLI download\n");
+    isolated_gosh(&config)
+        .args(["verify", &id])
+        .assert()
+        .success();
+
+    isolated_gosh(&config)
+        .args(["verify", "ffffffffffffffff"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn metalink_files_add_every_listed_download() {
+    let fixture = HttpFixture::new();
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    let metalink = dir.path().join("bundle.meta4");
+    std::fs::write(
+        &metalink,
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<metalink xmlns="urn:ietf:params:xml:ns:metalink">
+  <file name="one.bin"><url>{0}/one.bin</url></file>
+  <file name="two.bin"><url>{0}/missing</url><url>{0}/two.bin</url></file>
+</metalink>"#,
+            fixture.url
+        ),
+    )
+    .unwrap();
+    let added = isolated_gosh(&config)
+        .args(["--output", "json", "add", "--wait"])
+        .arg(&metalink)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let added: serde_json::Value = serde_json::from_slice(&added).unwrap();
+    assert_eq!(added.as_array().map(Vec::len), Some(2), "{added}");
+    for name in ["one.bin", "two.bin"] {
+        assert_eq!(
+            std::fs::read(dir.path().join(name)).unwrap(),
+            b"verified CLI download\n",
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn alt_url_is_a_fallback_for_one_http_download() {
+    let fixture = HttpFixture::new();
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    // The primary URL is dead; the alternative serves the file.
+    isolated_gosh(&config)
+        .args([
+            "add",
+            "--wait",
+            "-o",
+            "fallback.bin",
+            "--alt-url",
+            &format!("{}/fallback.bin", fixture.url),
+            &format!("{}/missing", fixture.url),
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read(dir.path().join("fallback.bin")).unwrap(),
+        b"verified CLI download\n"
+    );
+
+    // Alternatives only make sense for a single HTTP download.
+    isolated_gosh(&config)
+        .args([
+            "add",
+            "--alt-url",
+            &format!("{}/x.bin", fixture.url),
+            &format!("{}/a.bin", fixture.url),
+            &format!("{}/b.bin", fixture.url),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--alt-url"));
+    isolated_gosh(&config)
+        .args([
+            "add",
+            "--alt-url",
+            "not a url",
+            &format!("{}/a.bin", fixture.url),
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn info_counts_pieces_not_hash_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    // 40000 bytes at 16 KiB per piece: three pieces, sixty bytes of hashes.
+    let mut torrent =
+        b"d4:infod6:lengthi40000e4:name8:data.bin12:piece lengthi16384e6:pieces60:".to_vec();
+    torrent.extend([7u8; 60]);
+    torrent.extend(b"ee");
+    let path = dir.path().join("data.torrent");
+    std::fs::write(&path, torrent).unwrap();
+    let info = gosh()
+        .args(["--output", "json", "info"])
+        .arg(&path)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let info: serde_json::Value = serde_json::from_slice(&info).unwrap();
+    assert_eq!(info["piece_count"], 3, "{info}");
+}
+
+#[test]
+fn bare_file_names_are_not_mistaken_for_hosts() {
+    // `gosh ubuntu.iso` used to be "fixed up" into https://ubuntu.iso.
+    let dir = tempfile::tempdir().unwrap();
+    let config = temp_config(&dir);
+    isolated_gosh(&config)
+        .args(["add", "definitely-missing.iso"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("https://definitely-missing.iso").not());
 }
 
 #[cfg(unix)]

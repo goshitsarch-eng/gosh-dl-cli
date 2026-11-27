@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
+### Added
+- `--on-conflict overwrite|rename|fail` and the `general.file_conflict` setting
+  choose what happens when a finished HTTP download's name is already taken.
+  `rename` saves as `name (1).ext`; `fail` keeps the data in the `.part` file.
+  The default stays `overwrite`.
+- `gosh verify <ID>` and `gosh repair <ID>`: the engine's integrity checks as
+  scriptable commands, with JSON output and a non-zero exit code for bad data.
+  `repair` stays in the foreground until the damaged data is downloaded again.
+- Metalink files (`.meta4`, `.metalink`) are accepted wherever a URL is: one
+  download per listed file, with its mirrors and checksum.
+- `--alt-url <URL>` (repeatable) gives a single HTTP download fallback mirrors.
+- TUI: a `Mirrors` view, and recursive mirrors shown as one row per job with
+  pause, resume and cancel acting on the whole job. A URL ending in `/` typed
+  into the add dialog is mirrored (Tab switches it to a single download);
+  discovery runs in the background.
+- TUI: "save paused" from the add dialog (F3, or Shift+Enter where the
+  terminal reports it), bracketed paste in the add, search and batch dialogs,
+  Home/End, Tab to cycle views, F1 for help.
+- TUI: a verify dialog that shows the result of `v` / `V` when it arrives.
+- TUI: a Schedule tab listing the bandwidth rules, a map of which rule is in
+  force for every hour of the week, and Enter to switch a rule on or off
+  (`enabled = false` in the config file). The status line names the active rule.
+- `engine.min_segment_size` is readable and writable with `gosh config`.
+- GitHub Actions: `ci.yml` (format, Clippy, MSRV, packaging, tests on three
+  operating systems, six release binaries) and a tag-driven `release.yml`.
+
+### Changed
+- Upgrade the gosh-dl engine from 0.6.3 to 0.7.0. Among its fixes: capability
+  and resume probes fall back from `HEAD` to a ranged `GET` (pre-signed URLs),
+  single-stream downloads retry, and many torrent, resume and storage fixes.
+- The minimum Rust version is now 1.89, as required by the engine.
+- `--max-retries` / `engine.max_retries` count retries *after* the first
+  attempt, matching the engine. `0` is valid again and means "try once".
+- The TUI is redesigned: a status line, a tabbed list with two-line rows and
+  kind tags (`HTTP×8`, `TORRENT`, `MAGNET`, `MIRROR`), a network graph with
+  download above and upload below the axis, a details panel per kind of
+  download, an activity log with wall-clock times, and a compact layout for
+  80x24 terminals. The estimated "progress map" is gone: the engine reports no
+  per-piece data, and the panel no longer draws one from byte counts.
+- TUI settings are driven by the same keys and parsers as `gosh config`, so
+  both accept the same values (`2M`, `512K`, `unlimited`). Sizes are shown in
+  that form instead of raw byte counts. The conflict policy, discovery
+  toggles, peer and seed-ratio limits now apply without a restart.
+- `dirs` 7 and refreshed lockfile.
+
+### Fixed
+- `gosh info` reported one twentieth of a torrent's real piece count.
+- `gosh config set engine.global_download_limit 99999999999G` overflowed: a
+  panic in debug builds, a silently tiny limit in release builds. Sizes now
+  share the checked parser used for speeds.
+- A bare file name such as `ubuntu.iso` or `movie.mkv` that does not exist was
+  turned into `https://ubuntu.iso`. More file extensions are recognised as
+  local paths and reported as missing files.
+- Error states printed a truncated debug string (`Network { `); they now show
+  a readable label such as `HTTP 404`.
+- `--seed-ratio` accepted `NaN` and infinite values.
+- TUI: Ctrl+A opened the add dialog and Ctrl+Q quit, because control chords
+  were matched like plain keys.
+- TUI: a mirror's hundreds of files no longer flood the list, the activity log
+  and the notifications; "cancel all" no longer leaves empty mirror records.
+- TUI: an invalid settings edit could leave a half-applied draft; edits are now
+  validated against the whole configuration before they are accepted.
+- TUI: pasting into a dialog was handled as individual key presses, so a
+  pasted line break submitted a half-pasted URL.
+- TUI: settings that changed the file conflict policy were only applied after
+  a restart.
+
+### Removed
+- `packaging/aur/PKGBUILD`. The Arch package is no longer maintained here.
+- The old raster screenshot; the README now uses pictures rendered from the
+  drawing code (`cargo test screenshot -- --ignored`).
+
 ## [0.6.3] - 2026-09-05
 
 ### Added
@@ -307,7 +381,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support (Linux, macOS, Windows)
 - Pre-built binaries with musl static linking for Linux
 
-[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.5.0...v0.6.3
 [0.5.0]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.2...v0.5.0
 [0.3.2]: https://github.com/goshitsarch-eng/gosh-dl-cli/compare/v0.3.1...v0.3.2

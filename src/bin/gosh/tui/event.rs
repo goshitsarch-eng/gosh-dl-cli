@@ -178,47 +178,6 @@ pub fn is_escape(event: &CrosstermEvent) -> bool {
     )
 }
 
-/// Helper to check for arrow keys
-pub fn is_up(event: &CrosstermEvent) -> bool {
-    matches!(
-        event,
-        CrosstermEvent::Key(KeyEvent {
-            code: event::KeyCode::Up,
-            ..
-        })
-    )
-}
-
-pub fn is_down(event: &CrosstermEvent) -> bool {
-    matches!(
-        event,
-        CrosstermEvent::Key(KeyEvent {
-            code: event::KeyCode::Down,
-            ..
-        })
-    )
-}
-
-pub fn is_page_up(event: &CrosstermEvent) -> bool {
-    matches!(
-        event,
-        CrosstermEvent::Key(KeyEvent {
-            code: event::KeyCode::PageUp,
-            ..
-        })
-    )
-}
-
-pub fn is_page_down(event: &CrosstermEvent) -> bool {
-    matches!(
-        event,
-        CrosstermEvent::Key(KeyEvent {
-            code: event::KeyCode::PageDown,
-            ..
-        })
-    )
-}
-
 /// Helper to check for a shifted (uppercase) key
 pub fn is_shift_key(event: &CrosstermEvent, key: char) -> bool {
     matches!(event, CrosstermEvent::Key(KeyEvent {
@@ -231,17 +190,6 @@ pub fn is_shift_key(event: &CrosstermEvent, key: char) -> bool {
 /// Alias for is_shift_key (uppercase letter check)
 pub fn is_upper_key(event: &CrosstermEvent, key: char) -> bool {
     is_shift_key(event, key) || is_key(event, key)
-}
-
-/// Helper to check for Tab key
-pub fn is_tab(event: &CrosstermEvent) -> bool {
-    matches!(
-        event,
-        CrosstermEvent::Key(KeyEvent {
-            code: event::KeyCode::Tab,
-            ..
-        })
-    )
 }
 
 /// Helper to check for Ctrl+C

@@ -40,12 +40,20 @@ fn show_path(config_path: Option<&Path>) -> Result<()> {
 }
 
 fn get_config_value(config: &CliConfig, key: &str) -> Result<()> {
+    println!("{}", value_of(config, key)?);
+    Ok(())
+}
+
+/// The current value of a configuration key, formatted the way
+/// `gosh config set` accepts it back. Shared with the TUI settings dialog.
+pub fn value_of(config: &CliConfig, key: &str) -> Result<String> {
     let parts: Vec<&str> = key.split('.').collect();
 
     let value = match parts.as_slice() {
         ["general", "download_dir"] => config.general.download_dir.display().to_string(),
         ["general", "database_path"] => config.general.database_path.display().to_string(),
         ["general", "storage_backend"] => format_storage_backend(config.general.storage_backend),
+        ["general", "file_conflict"] => config.general.file_conflict.as_str().to_string(),
         ["general", "log_file"] => display_optional_path(config.general.log_file.as_ref()),
         ["general", "log_level"] => config.general.log_level.clone(),
         ["engine", "max_concurrent_downloads"] => {
@@ -54,6 +62,7 @@ fn get_config_value(config: &CliConfig, key: &str) -> Result<()> {
         ["engine", "max_connections_per_download"] => {
             config.engine.max_connections_per_download.to_string()
         }
+        ["engine", "min_segment_size"] => config.engine.min_segment_size.to_string(),
         ["engine", "global_download_limit"] => config
             .engine
             .global_download_limit
@@ -82,14 +91,27 @@ fn get_config_value(config: &CliConfig, key: &str) -> Result<()> {
         _ => anyhow::bail!("Unknown configuration key: {}", key),
     };
 
-    println!("{}", value);
-    Ok(())
+    Ok(value)
 }
 
 fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Result<()> {
     // Load current config from the same path the CLI used
     let mut config = CliConfig::load(config_path)?;
+    apply_value(&mut config, key, value)?;
 
+    // Validate before saving
+    config.validate()?;
+
+    // Save the updated config to the same path
+    config.save(config_path)?;
+    println!("Configuration saved: {} = {}", key, value);
+
+    Ok(())
+}
+
+/// Parse `value` and store it under `key`. Does not validate the config as
+/// a whole or save it. Shared with the TUI settings dialog.
+pub fn apply_value(config: &mut CliConfig, key: &str, value: &str) -> Result<()> {
     let parts: Vec<&str> = key.split('.').collect();
 
     match parts.as_slice() {
@@ -101,6 +123,9 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
         }
         ["general", "storage_backend"] => {
             config.general.storage_backend = parse_storage_backend(value)?;
+        }
+        ["general", "file_conflict"] => {
+            config.general.file_conflict = crate::config::FileConflict::parse(value)?;
         }
         ["general", "log_file"] => {
             config.general.log_file = parse_optional_path(value);
@@ -114,15 +139,18 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
         ["engine", "max_connections_per_download"] => {
             config.engine.max_connections_per_download = value.parse()?;
         }
+        ["engine", "min_segment_size"] => {
+            config.engine.min_segment_size = parse_size(value)?;
+        }
         ["engine", "global_download_limit"] => {
-            config.engine.global_download_limit = if value == "unlimited" || value == "0" {
+            config.engine.global_download_limit = if is_unlimited(value) {
                 None
             } else {
                 Some(parse_size(value)?)
             };
         }
         ["engine", "global_upload_limit"] => {
-            config.engine.global_upload_limit = if value == "unlimited" || value == "0" {
+            config.engine.global_upload_limit = if is_unlimited(value) {
                 None
             } else {
                 Some(parse_size(value)?)
@@ -132,13 +160,13 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
             config.engine.user_agent = value.to_string();
         }
         ["engine", "enable_dht"] => {
-            config.engine.enable_dht = value.parse()?;
+            config.engine.enable_dht = parse_bool(value)?;
         }
         ["engine", "enable_pex"] => {
-            config.engine.enable_pex = value.parse()?;
+            config.engine.enable_pex = parse_bool(value)?;
         }
         ["engine", "enable_lpd"] => {
-            config.engine.enable_lpd = value.parse()?;
+            config.engine.enable_lpd = parse_bool(value)?;
         }
         ["engine", "max_peers"] => {
             config.engine.max_peers = value.parse()?;
@@ -159,7 +187,7 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
             config.engine.max_retries = value.parse()?;
         }
         ["engine", "accept_invalid_certs"] => {
-            config.engine.accept_invalid_certs = value.parse()?;
+            config.engine.accept_invalid_certs = parse_bool(value)?;
         }
         ["tui", "refresh_rate_ms"] => {
             config.tui.refresh_rate_ms = value.parse()?;
@@ -168,22 +196,30 @@ fn set_config_value(key: &str, value: &str, config_path: Option<&Path>) -> Resul
             config.tui.theme = value.to_string();
         }
         ["tui", "show_speed_graph"] => {
-            config.tui.show_speed_graph = value.parse()?;
+            config.tui.show_speed_graph = parse_bool(value)?;
         }
         ["tui", "show_peers"] => {
-            config.tui.show_peers = value.parse()?;
+            config.tui.show_peers = parse_bool(value)?;
         }
         _ => anyhow::bail!("Unknown configuration key: {}", key),
     }
 
-    // Validate before saving
-    config.validate()?;
-
-    // Save the updated config to the same path
-    config.save(config_path)?;
-    println!("Configuration saved: {} = {}", key, value);
-
     Ok(())
+}
+
+fn is_unlimited(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "" | "0" | "unlimited" | "none" | "unset"
+    )
+}
+
+fn parse_bool(value: &str) -> Result<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "on" | "yes" | "1" => Ok(true),
+        "false" | "off" | "no" | "0" => Ok(false),
+        other => anyhow::bail!("Expected true/false (or on/off), got '{}'", other),
+    }
 }
 
 fn format_storage_backend(backend: crate::config::StorageBackend) -> String {
@@ -219,7 +255,7 @@ fn display_optional_string(value: Option<&String>) -> String {
 }
 
 fn parse_optional_path(value: &str) -> Option<std::path::PathBuf> {
-    if value == "unset" {
+    if value == "unset" || value.trim().is_empty() {
         None
     } else {
         Some(value.into())
@@ -227,25 +263,19 @@ fn parse_optional_path(value: &str) -> Option<std::path::PathBuf> {
 }
 
 fn parse_optional_string(value: &str) -> Option<String> {
-    if value == "unset" {
+    if value == "unset" || value.trim().is_empty() {
         None
     } else {
         Some(value.to_string())
     }
 }
 
+/// Sizes and speeds share one parser: the copy that used to live here
+/// multiplied without an overflow check, so `config set
+/// engine.global_download_limit 99999999999G` panicked in debug builds and
+/// silently wrapped to a tiny limit in release builds.
 fn parse_size(s: &str) -> Result<u64> {
-    let s = s.trim().to_uppercase();
-
-    if let Some(num) = s.strip_suffix('K') {
-        Ok(num.trim().parse::<u64>()? * 1024)
-    } else if let Some(num) = s.strip_suffix('M') {
-        Ok(num.trim().parse::<u64>()? * 1024 * 1024)
-    } else if let Some(num) = s.strip_suffix('G') {
-        Ok(num.trim().parse::<u64>()? * 1024 * 1024 * 1024)
-    } else {
-        Ok(s.parse()?)
-    }
+    crate::util::parse_speed(s)
 }
 
 #[cfg(test)]
@@ -332,6 +362,42 @@ mod tests {
         let config = CliConfig::load(Some(config_path.as_path())).unwrap();
         assert!(config.general.log_file.is_none());
         assert!(config.engine.proxy_url.is_none());
+    }
+
+    #[test]
+    fn size_overflow_is_an_error_not_a_wrapped_value() {
+        let tempdir = TempDir::new().unwrap();
+        let config_path = tempdir.path().join("config.toml");
+        let err = set_config_value(
+            "engine.global_download_limit",
+            "18446744073709551615G",
+            Some(config_path.as_path()),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("too large"), "{err}");
+    }
+
+    #[test]
+    fn file_conflict_round_trips_and_rejects_typos() {
+        let tempdir = TempDir::new().unwrap();
+        let config_path = tempdir.path().join("config.toml");
+        set_config_value(
+            "general.file_conflict",
+            "rename",
+            Some(config_path.as_path()),
+        )
+        .unwrap();
+        let config = CliConfig::load(Some(config_path.as_path())).unwrap();
+        assert_eq!(
+            config.general.file_conflict,
+            crate::config::FileConflict::Rename
+        );
+        assert!(set_config_value(
+            "general.file_conflict",
+            "clobber",
+            Some(config_path.as_path())
+        )
+        .is_err());
     }
 
     #[test]

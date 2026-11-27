@@ -45,6 +45,8 @@ pub async fn create_engine(config: &CliConfig) -> Result<Arc<DownloadEngine>> {
             DownloadEngine::with_storage(engine_config, Arc::new(storage)).await?
         }
     };
+    // Engine-wide, not persisted by the engine: applied on every start.
+    engine.set_file_conflict_policy(config.general.file_conflict.to_engine());
     Ok(engine)
 }
 

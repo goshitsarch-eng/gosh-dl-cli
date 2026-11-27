@@ -15,8 +15,8 @@ use crate::config::CliConfig;
 use crate::format::{print_error, print_warning};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::util::{
-    exit_codes, parse_checksum, parse_selected_files, parse_speed, sanitize_filename, truncate_str,
-    validate_max_connections, validate_seed_ratio,
+    exit_codes, parse_checksum, parse_selected_files, parse_speed, sanitize_filename, submit_input,
+    truncate_str, validate_alt_urls, validate_max_connections, validate_seed_ratio,
 };
 
 /// Options for direct download mode
@@ -29,6 +29,7 @@ pub struct DirectOptions {
     pub referer: Option<String>,
     pub cookies: Vec<String>,
     pub checksum: Option<String>,
+    pub alt_urls: Vec<String>,
     pub max_connections: Option<usize>,
     pub max_speed: Option<String>,
     pub sequential: bool,
@@ -61,6 +62,7 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
         .iter()
         .map(|u| parse_input(u))
         .collect::<Result<_>>()?;
+    validate_alt_urls(&opts.alt_urls, &inputs)?;
 
     // Validate every option before creating workers or mutating persisted state.
     let prepared: Vec<_> = inputs
@@ -89,34 +91,38 @@ pub async fn execute(opts: DirectOptions, config: CliConfig) -> Result<i32> {
     let mut failed_to_add = 0;
 
     for (input, options) in inputs.iter().zip(prepared) {
-        let pb = multi.add(ProgressBar::new(0));
-        pb.set_style(spinner_style.clone());
-        pb.set_message(truncate_str(&input.display(), 40));
-        pb.enable_steady_tick(Duration::from_millis(100));
-
-        let result = match input {
-            ParsedInput::Http(url) => app.engine().add_http(url, options).await,
-            ParsedInput::Magnet(uri) => app.engine().add_magnet(uri, options).await,
-            ParsedInput::TorrentFile(path) => match tokio::fs::read(path).await {
-                Ok(data) => app.engine().add_torrent(&data, options).await,
-                Err(e) => Err(e.into()),
-            },
-        };
-
-        match result {
-            Ok(id) => {
-                downloads.insert(
-                    id,
-                    DownloadInfo {
-                        name: input.display(),
-                        progress_bar: pb,
-                        completed: false,
-                        failed: false,
-                    },
-                );
+        match submit_input(app.engine(), input, options).await {
+            Ok(ids) => {
+                // One bar per download: a Metalink document yields several.
+                let several = ids.len() > 1;
+                for id in ids {
+                    let name = match app.engine().status(id) {
+                        Some(status) if several => status.metadata.name,
+                        _ => input.display(),
+                    };
+                    let pb = multi.add(ProgressBar::new(0));
+                    pb.set_style(spinner_style.clone());
+                    pb.set_message(truncate_str(&name, 40));
+                    pb.enable_steady_tick(Duration::from_millis(100));
+                    downloads.insert(
+                        id,
+                        DownloadInfo {
+                            name,
+                            progress_bar: pb,
+                            completed: false,
+                            failed: false,
+                        },
+                    );
+                }
             }
             Err(e) => {
-                pb.abandon_with_message(format!("Failed: {}", truncate_str(&e.to_string(), 35)));
+                let pb = multi.add(ProgressBar::new(0));
+                pb.set_style(spinner_style.clone());
+                pb.abandon_with_message(format!(
+                    "{} - Failed: {}",
+                    truncate_str(&input.display(), 30),
+                    truncate_str(&format!("{e:#}"), 60)
+                ));
                 failed_to_add += 1;
             }
         }
@@ -310,6 +316,10 @@ fn build_options(opts: &DirectOptions, input: &ParsedInput) -> Result<DownloadOp
     // Parse checksum
     if let Some(ref checksum) = opts.checksum {
         options.checksum = Some(parse_checksum(checksum)?);
+    }
+
+    if matches!(input, ParsedInput::Http(_)) {
+        options.mirrors = opts.alt_urls.clone();
     }
 
     if let Some(max_conn) = validate_max_connections(opts.max_connections)? {

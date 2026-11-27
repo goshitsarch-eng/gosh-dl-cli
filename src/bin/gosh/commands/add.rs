@@ -12,8 +12,8 @@ use crate::cli::{AddArgs, OutputFormat};
 use crate::input::url_parser::{parse_input, ParsedInput};
 use crate::output::table::print_add_results;
 use crate::util::{
-    parse_checksum, parse_selected_files, parse_speed, sanitize_filename, truncate_str,
-    validate_max_connections, validate_seed_ratio,
+    parse_checksum, parse_selected_files, parse_speed, sanitize_filename, submit_input,
+    truncate_str, validate_alt_urls, validate_max_connections, validate_seed_ratio,
 };
 
 #[derive(Serialize)]
@@ -52,6 +52,7 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<i
 
     // Parse and categorize inputs
     let inputs: Vec<ParsedInput> = urls.iter().map(|u| parse_input(u)).collect::<Result<_>>()?;
+    validate_alt_urls(&args.alt_urls, &inputs)?;
 
     let prepared: Vec<_> = inputs
         .iter()
@@ -72,23 +73,19 @@ pub async fn execute(args: AddArgs, app: &App, output: OutputFormat) -> Result<i
     let mut results = Vec::new();
     let mut added_ids = Vec::new();
     for (input, options) in inputs.into_iter().zip(prepared) {
-        let id = match &input {
-            ParsedInput::Http(url) => app.engine().add_http(url, options).await?,
-            ParsedInput::Magnet(uri) => app.engine().add_magnet(uri, options).await?,
-            ParsedInput::TorrentFile(path) => {
-                let data = tokio::fs::read(path)
-                    .await
-                    .with_context(|| format!("Failed to read torrent file: {}", path.display()))?;
-                app.engine().add_torrent(&data, options).await?
-            }
-        };
-
-        added_ids.push(id);
-        results.push(AddResult {
-            id: id.to_gid(),
-            input: input.display(),
-            kind: input.kind().to_string(),
-        });
+        // A Metalink document expands to one download per listed file.
+        for id in submit_input(app.engine(), &input, options).await? {
+            added_ids.push(id);
+            let name = app.engine().status(id).map(|s| s.metadata.name);
+            results.push(AddResult {
+                id: id.to_gid(),
+                input: match (&input, name) {
+                    (ParsedInput::Metalink(_), Some(name)) => name,
+                    _ => input.display(),
+                },
+                kind: input.kind().to_string(),
+            });
+        }
     }
 
     // If --wait, monitor until completion
@@ -194,6 +191,10 @@ fn build_options(args: &AddArgs, input: &ParsedInput) -> Result<DownloadOptions>
     // Parse checksum
     if let Some(ref checksum) = args.checksum {
         options.checksum = Some(parse_checksum(checksum)?);
+    }
+
+    if matches!(input, ParsedInput::Http(_)) {
+        options.mirrors = args.alt_urls.clone();
     }
 
     if let Some(max_conn) = validate_max_connections(args.max_connections)? {
