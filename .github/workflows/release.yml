@@ -1,0 +1,78 @@
+name: Release
+
+# Pushing a `v*` tag runs the full CI, builds the six binaries and attaches
+# them, with checksums, to a GitHub release. Publishing to crates.io stays a
+# manual `cargo publish` (see "Releasing" in the README).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: GitHub release
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag and collect release notes
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, tomllib
+          tag = os.environ['TAG']
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          if tag != f'v{version}':
+              raise SystemExit(f'Tag {tag} does not match Cargo.toml version {version}')
+          changelog = pathlib.Path('CHANGELOG.md').read_text()
+          match = re.search(r'^## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=^## \[|\Z)', changelog, re.M | re.S)
+          if not match or not match.group(1).strip():
+              raise SystemExit(f'CHANGELOG.md has no notes for {version}')
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(match.group(1).strip() + '\n')
+          PY
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: gosh-*
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+
+      - name: Verify assets and write checksums
+        working-directory: ${{ runner.temp }}/assets
+        run: |
+          for name in gosh-linux-x86_64.tar.gz gosh-linux-arm64.tar.gz \
+                      gosh-macos-x86_64.tar.gz gosh-macos-arm64.tar.gz \
+                      gosh-windows-x86_64.zip gosh-windows-arm64.zip; do
+            test -s "$name" || { echo "Missing release asset: $name"; exit 1; }
+          done
+          sha256sum gosh-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading assets to it."
+            gh release upload "$TAG" "${RUNNER_TEMP}/assets/"* --clobber
+          else
+            gh release create "$TAG" "${RUNNER_TEMP}/assets/"* \
+              --title "$TAG" --notes-file "${RUNNER_TEMP}/release-notes.md" --verify-tag
+          fi

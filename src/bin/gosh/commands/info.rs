@@ -77,7 +77,8 @@ fn build_torrent_info(metainfo: &Metainfo) -> TorrentInfo {
         total_size: metainfo.info.total_size,
         total_size_human: format_size(metainfo.info.total_size),
         piece_length: metainfo.info.piece_length,
-        piece_count: metainfo.info.pieces.len() / 20,
+        // `pieces` is already one entry per piece hash, not the raw bytes.
+        piece_count: metainfo.info.pieces.len(),
         private: metainfo.info.private,
         files,
         announce: metainfo.announce.clone(),

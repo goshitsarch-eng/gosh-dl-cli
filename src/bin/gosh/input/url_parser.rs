@@ -10,6 +10,9 @@ pub enum ParsedInput {
     Magnet(String),
     /// Path to a .torrent file
     TorrentFile(PathBuf),
+    /// Path to a Metalink (RFC 5854, `.meta4` / `.metalink`) document: a
+    /// list of files, each with mirror URLs and checksums
+    Metalink(PathBuf),
 }
 
 impl ParsedInput {
@@ -43,7 +46,9 @@ impl ParsedInput {
                     }
                 }
             }
-            ParsedInput::TorrentFile(path) => path.display().to_string(),
+            ParsedInput::TorrentFile(path) | ParsedInput::Metalink(path) => {
+                path.display().to_string()
+            }
         }
     }
 
@@ -53,6 +58,7 @@ impl ParsedInput {
             ParsedInput::Http(_) => "http",
             ParsedInput::Magnet(_) => "magnet",
             ParsedInput::TorrentFile(_) => "torrent",
+            ParsedInput::Metalink(_) => "metalink",
         }
     }
 }
@@ -78,11 +84,14 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
     // Check for file paths
     let path = PathBuf::from(input);
     if path.exists() {
+        if is_metalink_name(input) {
+            return Ok(ParsedInput::Metalink(path));
+        }
         if input.ends_with(".torrent") || is_torrent_file(&path) {
             return Ok(ParsedInput::TorrentFile(path));
         }
         bail!(
-            "Existing file is not a torrent file: {}. Use 'gosh add -i <file>' to read a URL list.",
+            "Existing file is not a torrent or Metalink file: {}. Use 'gosh add -i <file>' to read a URL list.",
             path.display()
         );
     }
@@ -91,6 +100,9 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
     if input.ends_with(".torrent") {
         bail!("Torrent file not found: {}", input);
     }
+    if is_metalink_name(input) {
+        bail!("Metalink file not found: {}", input);
+    }
 
     if looks_like_implicit_url(input) {
         return Ok(ParsedInput::Http(format!("https://{}", input)));
@@ -98,9 +110,14 @@ pub fn parse_input(input: &str) -> Result<ParsedInput> {
 
     bail!(
         "Cannot determine input type for: {}. \
-         Use http(s)://... for URLs, magnet:... for magnet links, or a path to a .torrent file.",
+         Use http(s)://... for URLs, magnet:... for magnet links, or a path to a .torrent or .meta4 file.",
         input
     )
+}
+
+fn is_metalink_name(input: &str) -> bool {
+    let lower = input.to_ascii_lowercase();
+    lower.ends_with(".meta4") || lower.ends_with(".metalink")
 }
 
 fn looks_like_implicit_url(input: &str) -> bool {
@@ -150,7 +167,9 @@ fn common_file_extensions() -> &'static [&'static str] {
     &[
         "txt", "log", "csv", "json", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf", "md",
         "rst", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "pdf", "doc", "docx", "rs", "py",
-        "js", "ts", "go", "c", "h", "cpp", "java", "rb", "sh", "bat",
+        "js", "ts", "go", "c", "h", "cpp", "java", "rb", "sh", "bat", "meta4", "metalink",
+        "torrent", "iso", "img", "bin", "exe", "msi", "deb", "rpm", "apk", "dmg", "mp4", "mkv",
+        "mp3", "png", "jpg",
     ]
 }
 
@@ -208,7 +227,7 @@ mod tests {
         let err = parse_input(file.path().to_str().unwrap()).unwrap_err();
         assert!(err
             .to_string()
-            .contains("Existing file is not a torrent file"));
+            .contains("Existing file is not a torrent or Metalink file"));
     }
 
     #[test]
@@ -222,6 +241,28 @@ mod tests {
     fn test_parse_missing_torrent_file_errors() {
         let err = parse_input("missing.torrent").unwrap_err();
         assert!(err.to_string().contains("Torrent file not found"));
+    }
+
+    #[test]
+    fn test_parse_metalink_file() {
+        let file = Builder::new().suffix(".meta4").tempfile().unwrap();
+        let result = parse_input(file.path().to_str().unwrap()).unwrap();
+        assert!(matches!(result, ParsedInput::Metalink(_)));
+        assert_eq!(result.kind(), "metalink");
+
+        let err = parse_input("missing.meta4").unwrap_err();
+        assert!(err.to_string().contains("Metalink file not found"));
+    }
+
+    #[test]
+    fn test_bare_file_names_are_not_turned_into_urls() {
+        // A mistyped local file name used to become https://<name>.
+        for input in ["ubuntu.iso", "video.mkv", "setup.exe", "notes.txt"] {
+            assert!(
+                parse_input(input).is_err(),
+                "expected '{input}' to be rejected, not treated as a host"
+            );
+        }
     }
 
     #[test]

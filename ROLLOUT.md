@@ -1,63 +1,78 @@
-# gosh-dl-cli 0.6.3 rollout audit
+# gosh-dl-cli 0.7.0 rollout audit
 
-Baseline: CLI 0.5.0 at `8f17ced`, using gosh-dl 0.5.0. This update uses the
-published gosh-dl 0.6.3 engine. The binary is still named `gosh`.
+Baseline: CLI 0.6.3 at `6505472`, using gosh-dl 0.6.3. This update uses the
+published gosh-dl 0.7.0 engine, raises the minimum Rust version to 1.89, adds
+the engine's new features to the CLI and the TUI, and rebuilds the TUI. The
+binary is still named `gosh`.
+
+## Engine features now exposed
+
+| Engine 0.7.0 | CLI | TUI |
+| --- | --- | --- |
+| File conflict policy (`overwrite`, `rename`, `fail`) | `--on-conflict`, `general.file_conflict` | Settings, General tab; applied immediately |
+| `verify` / `repair` | `gosh verify <ID>`, `gosh repair <ID>` | `v`, `V`, with a result dialog |
+| Metalink | `.meta4` / `.metalink` as an input | Add dialog and batch import |
+| HTTP mirrors | `--alt-url` | Shown in the details panel |
+| Recursive jobs | `gosh mirror` (unchanged) | Directory URL in the add dialog; one row per job |
+| Paused creation | `gosh add` (unchanged) | F3 / Shift+Enter in the add dialog |
+| `HEAD` to ranged `GET` probe fallback, single-stream retries | Automatic | Automatic |
 
 ## Defects addressed
 
 | Area | Observed failure | Resolution |
 | --- | --- | --- |
-| Engine dependency | CLI missed the 0.6.x HTTP, streaming, torrent lifecycle, and uTP fixes. | Upgrade the registry dependency and lockfile to 0.6.3. |
-| Waiting downloads | `add --wait` returned success after an HTTP 404. | Track failed outcomes and return 1/2 for partial/total failure. |
-| Resume | `resume` started workers and immediately shut them down. | Wait in the foreground, including `resume-all`. |
-| Interrupts | Direct downloads and mirrors cancelled records, losing normal resume access. `add --wait` had no graceful Ctrl+C branch. | Pause unfinished work, preserve state, and exit 130. |
-| Queue-only operations | Detached mirrors claimed background work even though the process exited; in-memory queue entries disappeared on exit. | Create paused records before any transfer starts; prefer `--enqueue` and retain `--detach` as an alias. Reject queue-only operations without storage. |
-| JSON output | Empty `cancel-all` and foreground mirrors printed plain text; log messages could reach stdout. | Serialize result objects and route logging to stderr. |
-| Local commands | Config and torrent-info commands opened the download database unnecessarily; `config path` ignored `--config`. | Route local commands before engine creation and honor the selected path. |
-| Validation | Speed multiplication overflowed; schedule typos could become unrestricted rules; zero HTTP attempts prevented discovery. | Checked arithmetic and explicit configuration validation. |
-| Rust support | Manifest claimed Rust 1.85 despite TUI dependencies requiring 1.88. | Set and test Rust 1.88; modernize existing Clippy match patterns. |
-| Torrent completion | Foreground polling could stop seeding before the configured ratio. | Wait for Completed; Seeding remains active (zero means unlimited seeding). |
-| TUI event loop | Progress floods reset ticks; errors could leave raw mode active. | Persistent ticker, coalesced rendering, guaranteed terminal cleanup. |
-| TUI controls | Uppercase shortcuts failed on some terminals; invalid add input exited; dialogs clipped at 80×24. | Portable key handling, contained errors, usable dialog sizes, scrollable settings/import review. |
-| TUI settings | Custom paths ignored; failed saves and invalid numeric edits appeared successful; UI toggles did nothing. | Validate edits, retain failed drafts, honor paths, apply UI settings and document restart requirements. |
-| TUI integrity | New engine verification/repair unavailable in interface. | Background `v` checks and confirmed `V` repair, persistent activity-log results. |
-| Startup/logging | Missing download folders prevented first launch; logs could overwrite TUI. | Create download directory and honor log file/level settings with TUI console suppression. |
-| Releases | Tag-triggered binary builds had no test gate or crates.io publication. | Gate Trusted Publishing and six binary archives on reusable CI; attach checksums. |
-
-Seven targeted regressions reproduced existing failures before their fixes.
-Additional cases cover successful nested output paths, queue
-persistence, invalid schedule/attempt limits, and process interruption. HTTP
-fixtures run on loopback; they do not depend on external download servers.
+| Retry setting | `--max-retries 0` was rejected, although the engine defines the value as retries after the first attempt. | Accept 0 as "try once"; a download and a mirror crawl with 0 are tested. |
+| Torrent info | `gosh info` divided the piece count by 20 (it treated the hash list as raw bytes). | Report the number of piece hashes. |
+| Size parsing | `config set` multiplied sizes without an overflow check. | One checked parser for sizes and speeds. |
+| Input detection | A missing local file with a common extension became an `https://` URL. | Recognise more extensions as file names; report the missing file. |
+| Error labels | Error kinds were cut to ten characters of debug output. | Show the error category, and the status code for HTTP failures. |
+| Seed ratio | `NaN` and infinity were accepted. | Rejected with a message. |
+| TUI keys | Control chords triggered the plain-key bindings. | Ctrl and Alt chords are not bindings. |
+| TUI mirrors | Every mirrored file was its own row, log line and notification. | One row and one notification per job; children are listed in the details panel. |
+| TUI settings | Settings were a hand-written switch with its own parsing; invalid edits could be partially applied; sizes were raw byte counts. | Table of config keys using the `gosh config` parser; whole-config validation before an edit is accepted. |
+| TUI paste | Pasted text arrived as key presses; a newline submitted the dialog. | Bracketed paste, inserted as one edit. |
+| TUI responsiveness | Mirror discovery would have blocked the event loop. | Background task, collected on the next tick. |
+| TUI honesty | The "progress map" drew invented segments from a byte count. | Removed; the details panel shows only what the engine reports. |
+| Packaging | The AUR `PKGBUILD` was unmaintained; the Homebrew formula pointed at a placeholder account. | `PKGBUILD` removed; formula points at this repository and documents the two values to fill in. |
+| Automation | The repository had no CI after the workflows were removed. | New `ci.yml`, `build.yml`, and a tag-driven `release.yml` without a stored registry token. |
 
 ## Validation
 
-- CLI integration tests cover HTTP success/failure, JSON, queue/resume,
-  configuration, mirrors, and Unix SIGINT recovery.
-- Unit tests cover parsers, configuration, batch results, and TUI behavior.
-  TUI regressions include 80×24/small-terminal rendering, Unicode input,
-  uppercase keys, settings save failures, refresh deadlines, and a real HTTP
-  download verified, corrupted on disk, then repaired through the interface.
-- Default and TUI-free tests run on Linux, macOS, and Windows.
-- Formatting, Clippy, Rust 1.88, and verified Cargo packaging are checked.
-- Binary builds target Linux musl, macOS, and Windows on x86_64 and ARM64.
-- Registry publication uses the official pinned OIDC action. A rerun accepts
-  an existing crate only when the checksum matches and it is not yanked.
+- 94 unit tests (one of them the screenshot generator, ignored by default)
+  and 40 CLI integration tests; all HTTP fixtures run on loopback.
+- New CLI tests: conflict policy (flag, config key, override), verify and
+  repair on a file damaged on disk, Metalink with a dead first mirror,
+  `--alt-url` failover and validation, zero retries, torrent piece count, and
+  bare file names.
+- New TUI tests drive the real key handler against an in-process engine: a
+  directory URL becoming a single mirror row that is cancelled as a job; save
+  paused then resume; verify, damage, repair and re-verify of a real download;
+  settings edited by keyboard including rejected values; schedule rules
+  toggled and saved; filter, views and reordering; control chords; paste.
+- Every screen and dialog is rendered at nine sizes from 1x1 to 200x60, empty
+  and populated, to catch layout panics.
+- `cargo fmt --check`, Clippy with `-D warnings` with and without the `tui`
+  feature, `cargo check` on Rust 1.89, and `cargo audit` (no vulnerabilities;
+  one "unmaintained" notice for `chrono`).
 
 ## Remaining scope
 
 - There is no daemon, RPC, or inter-process coordination. Use one process per
-  storage location. Separate commands do not control a running TUI. A future
-  daemon/locking design is needed for concurrent process management.
-- Metalink import and streaming readers are not exposed. Verification/repair
-  are available in the TUI; equivalent scriptable subcommands are follow-up work.
-- The progress map is an estimate from completed bytes, not per-piece telemetry.
-  Visual list reordering does not change engine priority (use `gosh priority`).
-- TUI network/storage/logging edits require a restart; UI, concurrency, and
-  bandwidth settings apply immediately. Avoid overlapping processes.
-- Real-swarm interoperability and long-duration network testing still matter;
-  engine limitations are documented in the
-  [gosh-dl rollout audit](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.3/ROLLOUT.md).
-- AUR packaging is updated separately from the crate and GitHub release.
-- The crate owner must configure Trusted Publishing for **gosh-dl-cli**
-  before merging the release PR. The engine's publisher does not cover it.
-  See the exact values in [README.md](README.md#releasing).
+  storage location. Separate commands do not control a running TUI.
+- The engine reports no per-connection, per-segment or per-piece telemetry,
+  and no list of connected peers, so the details panel shows totals. The
+  torrent piece figure is derived from completed bytes and marked with `≈`.
+- A whole mirror cannot be verified in one step; verify its files one at a
+  time with `gosh verify <ID>`.
+- Schedule rules are toggled in the TUI but added and edited in the config
+  file.
+- The conflict policy applies to HTTP downloads. The final name of a download
+  that uses a server-supplied `Content-Disposition` name is only known when it
+  completes.
+- Visual list reordering does not change engine priority (use `gosh priority`).
+- The README pictures are SVGs produced from the rendering code with sample
+  data, not captures of a terminal emulator.
+- Publishing to crates.io is a manual `cargo publish`; the release workflow
+  only creates the GitHub release.
+- Engine limitations are documented in the
+  [gosh-dl rollout audit](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.7.0/ROLLOUT.md).

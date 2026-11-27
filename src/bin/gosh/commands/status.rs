@@ -165,8 +165,17 @@ fn format_state(state: &DownloadState) -> String {
         DownloadState::Seeding => "Seeding".to_string(),
         DownloadState::Paused => "Paused".to_string(),
         DownloadState::Completed => "Completed".to_string(),
-        DownloadState::Error { kind, message, .. } => {
-            format!("Error ({}): {}", kind, message)
+        DownloadState::Error {
+            kind,
+            message,
+            retryable,
+        } => {
+            format!(
+                "Error ({}{}): {}",
+                crate::format::error_kind_label(kind),
+                if *retryable { ", retryable" } else { "" },
+                message
+            )
         }
     }
 }

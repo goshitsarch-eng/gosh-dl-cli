@@ -98,6 +98,60 @@ pub fn resolve_download_ids(
     ids.iter().map(|s| resolve_download_id(s, engine)).collect()
 }
 
+/// Hand a parsed input to the engine and return the downloads it created.
+///
+/// Every input becomes exactly one download except a Metalink document,
+/// which lists any number of files; each of those is queued with the
+/// mirrors and checksum the document gives for it.
+pub async fn submit_input(
+    engine: &DownloadEngine,
+    input: &crate::input::url_parser::ParsedInput,
+    options: gosh_dl::DownloadOptions,
+) -> Result<Vec<DownloadId>> {
+    use crate::input::url_parser::ParsedInput;
+    Ok(match input {
+        ParsedInput::Http(url) => vec![engine.add_http(url, options).await?],
+        ParsedInput::Magnet(uri) => vec![engine.add_magnet(uri, options).await?],
+        ParsedInput::TorrentFile(path) => {
+            let data = tokio::fs::read(path).await.map_err(|e| {
+                anyhow::anyhow!("Failed to read torrent file {}: {}", path.display(), e)
+            })?;
+            vec![engine.add_torrent(&data, options).await?]
+        }
+        ParsedInput::Metalink(path) => {
+            let ids = engine.add_metalink_file(path, options).await?;
+            if ids.is_empty() {
+                bail!(
+                    "Metalink file {} lists no file with an HTTP(S) URL",
+                    path.display()
+                );
+            }
+            ids
+        }
+    })
+}
+
+/// Validate `--alt-url` values: extra URLs that serve the *same* file, used
+/// by the engine for failover and for spreading segments across servers.
+pub fn validate_alt_urls(
+    alt_urls: &[String],
+    inputs: &[crate::input::url_parser::ParsedInput],
+) -> Result<()> {
+    use crate::input::url_parser::ParsedInput;
+    if alt_urls.is_empty() {
+        return Ok(());
+    }
+    if inputs.len() != 1 || !matches!(inputs[0], ParsedInput::Http(_)) {
+        bail!("--alt-url needs exactly one HTTP(S) download to be an alternative for");
+    }
+    for url in alt_urls {
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            bail!("--alt-url must be an http(s) URL, got '{}'", url);
+        }
+    }
+    Ok(())
+}
+
 /// Truncate a string to `max_len` bytes, appending "..." if truncated.
 /// Safe for UTF-8: always cuts on a char boundary.
 pub fn truncate_str(s: &str, max_len: usize) -> String {
@@ -204,7 +258,9 @@ pub fn validate_max_connections(max_connections: Option<usize>) -> Result<Option
 /// Validate an optional seed ratio override.
 pub fn validate_seed_ratio(seed_ratio: Option<f64>) -> Result<Option<f64>> {
     match seed_ratio {
-        Some(ratio) if ratio < 0.0 => bail!("--seed-ratio must not be negative"),
+        Some(ratio) if !ratio.is_finite() || ratio < 0.0 => {
+            bail!("--seed-ratio must be a finite, non-negative number")
+        }
         other => Ok(other),
     }
 }
@@ -318,5 +374,8 @@ mod tests {
     fn test_validate_seed_ratio() {
         assert_eq!(validate_seed_ratio(Some(1.5)).unwrap(), Some(1.5));
         assert!(validate_seed_ratio(Some(-1.0)).is_err());
+        // NaN compares false against everything and used to slip through
+        assert!(validate_seed_ratio(Some(f64::NAN)).is_err());
+        assert!(validate_seed_ratio(Some(f64::INFINITY)).is_err());
     }
 }

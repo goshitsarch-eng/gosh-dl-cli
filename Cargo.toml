@@ -1,13 +1,15 @@
 [package]
 name = "gosh-dl-cli"
-version = "0.6.3"
+version = "0.7.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "Command-line interface for the gosh-dl download engine"
 license = "MIT"
 repository = "https://github.com/goshitsarch-eng/gosh-dl-cli"
 keywords = ["download", "cli", "tui", "download-manager"]
 categories = ["command-line-utilities"]
+readme = "README.md"
+exclude = [".github/", "screenshots/", "packaging/", "PRD.md", "IMPROVEMENT_PLAN.md", "technical_spec.md"]
 
 [features]
 default = ["tui"]
@@ -20,14 +22,14 @@ path = "src/bin/gosh/main.rs"
 
 [dependencies]
 # Download engine
-gosh-dl = { version = "0.6.3", features = ["recursive-http"] }
+gosh-dl = { version = "0.7.0", features = ["recursive-http", "metalink"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "time", "fs", "io-util"] }
 futures = "0.3"
 
 # Platform directories
-dirs = "6"
+dirs = "7"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

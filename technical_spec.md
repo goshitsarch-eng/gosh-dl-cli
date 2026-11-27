@@ -1,7 +1,7 @@
 # gosh-dl-cli technical specification
 
-Current CLI: **0.6.3**, using the published **gosh-dl 0.6.3** engine and
-requiring **Rust 1.88+** for its TUI dependencies.
+Current CLI: **0.7.0**, using the published **gosh-dl 0.7.0** engine and
+requiring **Rust 1.89+**.
 
 The CLI owns an in-process engine (`src/bin/gosh/app.rs`). Configuration and
 `.torrent` metadata inspection run without opening the engine or its database.
@@ -13,20 +13,66 @@ There is no daemon or communication between separate CLI processes.
 | Direct URL / `add --wait` | Wait for completion; propagate failures; Ctrl+C pauses for resume. |
 | `add` without `--wait` | Persist paused downloads for a later invocation. |
 | `resume` / `resume-all` | Recreate workers from persisted state and wait in the foreground. |
+| `verify` | Check the data on disk; exit 0 when valid, 1 when not. |
+| `repair` | Verify, then wait in the foreground while bad data is fetched again. |
 | `mirror` | Discover, download, and monitor the recursive job. |
 | `mirror --enqueue` / `--detach` | Save paused children and job metadata; no background worker. |
-| JSON output | Mirror results and batch outcomes are structured; diagnostics use stderr. |
+| JSON output | Mirror results, verify reports and batch outcomes are structured; diagnostics use stderr. |
 
 Use one process per storage location. The engine handles HTTP and torrent
 protocol details; its current specification is maintained in the
-[engine repository](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.6.3/technical_spec.md).
+[engine repository](https://github.com/goshitsarch-eng/gosh-dl/blob/v0.7.0/technical_spec.md).
 See [README.md](README.md) for command/configuration details and
 [ROLLOUT.md](ROLLOUT.md) for validation and remaining limitations.
 
-The TUI uses a persistent refresh interval, coalesces progress redraws, restores
-terminal state on every exit path, and performs verification/repair in background
-tasks. Settings save to the requested config path. See the README for controls,
-live settings, and integrity-check limitations.
+## CLI source layout
+
+```
+src/bin/gosh/
+├── main.rs            # Argument routing: direct mode, subcommands, TUI
+├── cli.rs             # clap definitions
+├── app.rs             # Engine construction from the configuration
+├── config.rs          # TOML configuration, validation, engine mapping
+├── direct.rs          # `gosh URL...` with progress bars
+├── format.rs          # Sizes, speeds, durations, state and error labels
+├── util.rs            # ID resolution, input submission, value parsers
+├── input/             # URL / magnet / torrent / Metalink detection
+├── commands/          # One module per subcommand (add, list, verify, ...)
+└── tui/               # Only with the `tui` feature
+    ├── app.rs         # State and input handling; owns the engine handle
+    ├── app_tests.rs   # Key-driven tests and the screenshot generator
+    ├── event.rs       # Terminal + engine + mirror events, refresh ticker
+    ├── model.rs       # Rows: a download, or a mirror job with its children
+    ├── settings.rs    # Table of settings, backed by `commands::config`
+    ├── theme.rs       # Catppuccin palettes and the plain fallback
+    ├── ui.rs          # Wide / compact / minimal layouts
+    └── widgets/       # Pure drawing: list, details, graph, log, dialogs
+```
+
+Input from every mode goes through `util::submit_input`, which maps a parsed
+input (HTTP, magnet, torrent file, Metalink) to engine calls, so the three
+modes accept the same things. Settings in the TUI and `gosh config` go through
+`commands::config::{value_of, apply_value}`, so both accept the same values.
+
+## TUI design
+
+- **Rows, not downloads.** `model::build_rows` folds the children of each
+  recursive job into one `Row::Mirror`; every other download is a
+  `Row::Download`. Views (All, Active, Completed, Mirrors), the filter and the
+  user's display order are applied on top.
+- **State and drawing are separate.** `tui::app` mutates state in response to
+  keys, engine events and ticks; `tui::widgets` only reads it. Engine progress
+  events do not redraw; the next tick (or key press) does.
+- **Nothing blocks the event loop.** Verification, repair and mirror discovery
+  run as tasks whose results are collected on a tick.
+- **Only real data.** The engine exposes totals (bytes, speed, connection and
+  peer counts), not per-segment or per-piece state, so the details panel shows
+  totals and marks derived numbers as estimates.
+- **Terminal safety.** Raw mode, the alternate screen and bracketed paste are
+  restored on every exit path, including panics.
+
+Three layouts are chosen by size: wide (100x24 and up), compact (60x12 and
+up), and minimal. Every screen is rendered in tests at sizes down to 1x1.
 
 The remainder is an **archived engine design**, retained for historical
 context. Its API sketches and module layout are not the current CLI contract.
@@ -941,7 +987,7 @@ pub struct HttpConfig {
     pub connect_timeout: u64,                   // Default: 30 seconds
     pub read_timeout: u64,                      // Default: 60 seconds
     pub max_redirects: usize,                   // Default: 10
-    pub max_retries: usize,                     // Default: 3
+    pub max_retries: usize,                     // Retries after the first attempt
     pub retry_delay_ms: u64,                    // Default: 1000
     pub max_retry_delay_ms: u64,                // Default: 30000
     pub accept_invalid_certs: bool,             // Default: false

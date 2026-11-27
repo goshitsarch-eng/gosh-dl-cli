@@ -1,6 +1,6 @@
 # Product Requirements Document: gosh
 
-> **Current release:** CLI 0.6.3 uses gosh-dl 0.6.3. Resume commands run in the foreground; enqueue operations persist paused work. See [ROLLOUT.md](ROLLOUT.md) for current validation.
+> **Current release:** CLI 0.7.0 uses gosh-dl 0.7.0. Resume and repair commands run in the foreground; enqueue operations persist paused work. See [ROLLOUT.md](ROLLOUT.md) for current validation.
 
 > **Note**: This is an internal planning document from the initial design phase. Some details (MSRV, feature status) may not reflect the current state of the code. For current usage docs, see [README.md](README.md).
 
@@ -83,8 +83,10 @@ gosh resume <download-id>
 ### FR1: HTTP/HTTPS Downloads
 - Multi-connection segmented downloads (configurable, up to 16 connections)
 - Automatic resume detection using ETag/Last-Modified validation
-- Mirror/fallback URLs with automatic failover
+- Mirror/fallback URLs with automatic failover (`--alt-url`, Metalink)
 - Checksum verification (MD5, SHA256)
+- A choice of what happens when the output name is taken: overwrite, rename, fail
+- Verification and repair of data on disk
 - Custom headers, user agent, referer, and cookies
 - Proxy support (HTTP, HTTPS, SOCKS5)
 - Speed limiting (global and per-download)
@@ -104,13 +106,15 @@ gosh resume <download-id>
 - Configurable seed ratio
 
 ### FR3: TUI Mode
-- Full-screen terminal interface
-- Download list with status indicators
-- Real-time speed graph
+- Full-screen terminal interface, usable from 80x24
+- Download list with status indicators; a recursive mirror is one row
+- Real-time network graph (download and upload)
+- Details panel for the selected row
 - Keyboard navigation (vim-style j/k)
-- Quick actions: add, pause, resume, cancel
-- Filter views: all, active, completed
-- Help overlay
+- Quick actions: add, save paused, pause, resume, cancel, verify, repair
+- Views: all, active, completed, mirrors; text filter
+- Settings editor, including switching schedule rules on and off
+- Activity log and help overlay
 
 ### FR4: Direct Mode
 - aria2c-compatible command-line options
@@ -125,6 +129,8 @@ gosh resume <download-id>
 - `pause`/`resume`: Control download state
 - `cancel`: Remove downloads (optionally delete files)
 - `priority`: Set download priority
+- `verify` / `repair`: Check data on disk and fetch damaged data again
+- `mirror`: Recursively download an HTTP directory listing
 - `stats`: Global statistics
 - `info`: Parse torrent file information
 - `config`: View and modify configuration
@@ -164,7 +170,7 @@ gosh resume <download-id>
 - Exit codes suitable for scripting
 
 ### NFR5: Maintainability
-- Rust 1.88+
+- Rust 1.89+
 - Modular architecture separating engine from UI
 - Comprehensive type safety
 

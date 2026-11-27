@@ -73,6 +73,7 @@ async fn run() -> Result<i32> {
             referer: cli.referer,
             cookies: cli.cookies,
             checksum: cli.checksum,
+            alt_urls: cli.alt_urls,
             max_connections: cli.max_connections,
             max_speed: cli.max_speed,
             sequential: cli.sequential,
@@ -124,6 +125,9 @@ fn apply_cli_overrides(config: &mut config::CliConfig, cli: &Cli) {
     }
     if cli.insecure {
         config.engine.accept_invalid_certs = true;
+    }
+    if let Some(policy) = cli.on_conflict {
+        config.general.file_conflict = policy.to_config();
     }
 }
 
@@ -212,6 +216,8 @@ async fn run_command(
         Commands::CancelAll(args) => commands::batch::cancel_all(args, &app, output_format).await,
         Commands::Mirror(args) => commands::mirror::execute(*args, &app, output_format).await,
         Commands::Priority(args) => commands::priority::execute(args, &app).await.map(|()| 0),
+        Commands::Verify(args) => commands::verify::verify(args, &app, output_format).await,
+        Commands::Repair(args) => commands::verify::repair(args, &app, output_format).await,
         Commands::Stats => commands::stats::execute(&app, output_format)
             .await
             .map(|()| 0),

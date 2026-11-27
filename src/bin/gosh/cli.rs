@@ -58,6 +58,10 @@ pub struct Cli {
     #[arg(long)]
     pub checksum: Option<String>,
 
+    /// Alternative URL serving the same file (repeatable; single HTTP download only)
+    #[arg(long = "alt-url", value_name = "URL")]
+    pub alt_urls: Vec<String>,
+
     /// Maximum connections per download
     #[arg(short = 'x', long)]
     pub max_connections: Option<usize>,
@@ -98,9 +102,13 @@ pub struct Cli {
     #[arg(short = 'k', long, hide = true)]
     pub insecure: bool,
 
-    /// Maximum HTTP attempts including the first (at least 1)
+    /// Retries after a failed HTTP attempt (0 = try once)
     #[arg(long, global = true)]
     pub max_retries: Option<usize>,
+
+    /// What to do when a finished HTTP download's name is already taken
+    #[arg(long, value_enum, global = true, value_name = "POLICY")]
+    pub on_conflict: Option<ConflictChoice>,
 
     /// Proxy URL (http://, https://, socks5://)
     #[arg(long, global = true)]
@@ -153,6 +161,12 @@ pub enum Commands {
     /// Set download priority
     Priority(PriorityArgs),
 
+    /// Check a download's data on disk
+    Verify(VerifyArgs),
+
+    /// Check a download's data and fetch whatever is missing or corrupt again
+    Repair(VerifyArgs),
+
     /// Show global download/upload statistics
     Stats,
 
@@ -168,7 +182,7 @@ pub enum Commands {
 
 #[derive(Args)]
 pub struct AddArgs {
-    /// URL, magnet link, or torrent file path
+    /// URL, magnet link, torrent file or Metalink (.meta4) file path
     /// Can be specified multiple times, or use '-' to read from stdin
     #[arg(required_unless_present = "input_file")]
     pub urls: Vec<String>,
@@ -212,6 +226,10 @@ pub struct AddArgs {
     /// Expected checksum (format: "md5:xxx" or "sha256:xxx")
     #[arg(long)]
     pub checksum: Option<String>,
+
+    /// Alternative URL serving the same file (repeatable; single HTTP download only)
+    #[arg(long = "alt-url", value_name = "URL")]
+    pub alt_urls: Vec<String>,
 
     /// Maximum connections per download
     #[arg(short = 'x', long)]
@@ -425,6 +443,12 @@ pub struct PriorityArgs {
 }
 
 #[derive(Args)]
+pub struct VerifyArgs {
+    /// Download ID (full UUID or short GID)
+    pub id: String,
+}
+
+#[derive(Args)]
 pub struct InfoArgs {
     /// Path to torrent file
     pub file: PathBuf,
@@ -500,6 +524,26 @@ pub enum ColorChoice {
     Auto,
     Always,
     Never,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConflictChoice {
+    /// Replace the existing file (default)
+    Overwrite,
+    /// Keep it and save the download as "name (1).ext"
+    Rename,
+    /// Keep it and fail the download, leaving the data in the .part file
+    Fail,
+}
+
+impl ConflictChoice {
+    pub fn to_config(self) -> crate::config::FileConflict {
+        match self {
+            Self::Overwrite => crate::config::FileConflict::Overwrite,
+            Self::Rename => crate::config::FileConflict::Rename,
+            Self::Fail => crate::config::FileConflict::Fail,
+        }
+    }
 }
 
 impl Priority {

@@ -27,6 +27,73 @@ pub struct ScheduleRuleConfig {
     pub days: String,
     pub download_limit: Option<String>,
     pub upload_limit: Option<String>,
+    /// Disabled rules stay in the file but are not handed to the engine.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+// Only the TUI asks which rule is in force; the engine gets the rules
+// themselves through `to_engine_config`.
+#[cfg(feature = "tui")]
+impl ScheduleRuleConfig {
+    /// The weekdays this rule applies to (empty = every day).
+    pub fn weekdays(&self) -> Vec<Weekday> {
+        parse_schedule_days(&self.days)
+    }
+
+    /// Whether the rule covers `hour` on `weekday`, with the engine's own
+    /// matching rules (inclusive end hour, ranges may wrap past midnight).
+    pub fn matches(&self, hour: u8, weekday: Weekday) -> bool {
+        gosh_dl::ScheduleRule::new(self.start_hour, self.end_hour, self.weekdays(), None, None)
+            .matches(hour, weekday)
+    }
+}
+
+/// What to do when a finished HTTP download's name is already taken.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileConflict {
+    /// Replace the existing file
+    #[default]
+    Overwrite,
+    /// Keep it and save as `name (1).ext`
+    Rename,
+    /// Keep it, fail the download and leave the data in the `.part` file
+    Fail,
+}
+
+impl FileConflict {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Overwrite => "overwrite",
+            Self::Rename => "rename",
+            Self::Fail => "fail",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "overwrite" => Ok(Self::Overwrite),
+            "rename" => Ok(Self::Rename),
+            "fail" => Ok(Self::Fail),
+            other => anyhow::bail!(
+                "Invalid conflict policy '{}'. Expected: overwrite, rename, fail",
+                other
+            ),
+        }
+    }
+
+    pub fn to_engine(self) -> gosh_dl::FileConflictPolicy {
+        match self {
+            Self::Overwrite => gosh_dl::FileConflictPolicy::Overwrite,
+            Self::Rename => gosh_dl::FileConflictPolicy::Rename,
+            Self::Fail => gosh_dl::FileConflictPolicy::Fail,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +107,10 @@ pub struct GeneralConfig {
 
     /// Persistence backend: sqlite (default), file (JSON sidecars), none
     pub storage_backend: StorageBackend,
+
+    /// What to do when a finished HTTP download's name is already taken:
+    /// overwrite (default), rename, fail
+    pub file_conflict: FileConflict,
 
     /// Log file path (None = stderr only)
     pub log_file: Option<PathBuf>,
@@ -106,7 +177,7 @@ pub struct EngineSettings {
     /// Read timeout in seconds
     pub read_timeout: u64,
 
-    /// Maximum retries for failed downloads
+    /// Retries after a failed HTTP attempt (0 = try once, never retry)
     pub max_retries: usize,
 
     /// Accept invalid TLS certificates (insecure)
@@ -141,6 +212,7 @@ impl Default for GeneralConfig {
             download_dir,
             database_path: data_dir.join("gosh.db"),
             storage_backend: StorageBackend::default(),
+            file_conflict: FileConflict::default(),
             log_file: None,
             log_level: "info".to_string(),
         }
@@ -250,11 +322,14 @@ impl CliConfig {
         if self.tui.refresh_rate_ms == 0 {
             anyhow::bail!("tui.refresh_rate_ms must be at least 1");
         }
-        if self.engine.max_retries == 0 || self.engine.max_retries > u32::MAX as usize {
-            anyhow::bail!(
-                "engine.max_retries must be between 1 and {} (HTTP attempts including the first)",
-                u32::MAX
-            );
+        if self.engine.max_retries > u32::MAX as usize {
+            anyhow::bail!("engine.max_retries must be at most {}", u32::MAX);
+        }
+        if self.engine.min_segment_size == 0 {
+            anyhow::bail!("engine.min_segment_size must be at least 1");
+        }
+        if self.engine.user_agent.trim().is_empty() {
+            anyhow::bail!("engine.user_agent must not be empty");
         }
         if !self.engine.seed_ratio.is_finite() || self.engine.seed_ratio < 0.0 {
             anyhow::bail!("engine.seed_ratio must be finite and non-negative");
@@ -301,6 +376,7 @@ impl CliConfig {
                 .schedule
                 .rules
                 .iter()
+                .filter(|r| r.enabled)
                 .map(|r| {
                     let days = parse_schedule_days(&r.days);
                     let dl = r.download_limit.as_ref().and_then(|s| parse_speed(s).ok());

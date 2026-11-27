@@ -10,3 +10,4 @@ pub mod priority;
 pub mod resume;
 pub mod stats;
 pub mod status;
+pub mod verify;

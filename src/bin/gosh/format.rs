@@ -100,7 +100,31 @@ pub fn format_state(state: &DownloadState) -> String {
         DownloadState::Seeding => "Seeding".to_string(),
         DownloadState::Paused => "Paused".to_string(),
         DownloadState::Completed => "Completed".to_string(),
-        DownloadState::Error { kind, .. } => format!("Error: {}", truncate_str(kind, 10)),
+        DownloadState::Error { kind, .. } => format!("Error: {}", error_kind_label(kind)),
+    }
+}
+
+/// A short category for an engine error.
+///
+/// The engine stores the error's `Debug` rendering as its "kind", e.g.
+/// `Network { kind: HttpStatus(404), message: "...", retryable: false }`.
+/// Cutting that to ten characters produced labels like `Network { `; this
+/// keeps the variant name and, for HTTP failures, the status code.
+pub fn error_kind_label(kind: &str) -> String {
+    if let Some(rest) = kind.split("HttpStatus(").nth(1) {
+        let code: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !code.is_empty() {
+            return format!("HTTP {code}");
+        }
+    }
+    let variant: String = kind
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect();
+    if variant.is_empty() {
+        truncate_str(kind, 16)
+    } else {
+        variant
     }
 }
 
@@ -112,6 +136,22 @@ mod tests {
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[test]
+    fn error_labels_are_readable() {
+        assert_eq!(
+            error_kind_label(
+                "Network { kind: HttpStatus(404), message: \"HTTP error: 404\", retryable: false }"
+            ),
+            "HTTP 404"
+        );
+        assert_eq!(
+            error_kind_label("Storage { kind: AlreadyExists, path: \"/x\", message: \"..\" }"),
+            "Storage"
+        );
+        assert_eq!(error_kind_label("RecursiveFailFast"), "RecursiveFailFast");
+        assert_eq!(error_kind_label(""), "");
     }
 
     #[test]
